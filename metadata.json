@@ -1,0 +1,10 @@
+{
+  "name": "Remix: Ko+Lab Social Credit",
+  "description": "Social credit score application for ko+lab hub creative interns.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

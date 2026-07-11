@@ -1,0 +1,139 @@
+        {activeTab === 'reports' && (
+          <motion.div key="reports" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
+            <div className="bg-white p-8 rounded-3xl border border-neutral-100 shadow-xl shadow-neutral-200/40">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                <h2 className="text-2xl font-bold text-neutral-800 flex items-center gap-3">
+                  <Clock className="w-6 h-6 text-[#EAB308]" /> Riwayat Absensi & Kegiatan
+                </h2>
+                <div className="flex items-center gap-3">
+                   <div className="relative">
+                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                     <input 
+                       type="text" 
+                       placeholder="Cari riwayat..."
+                       value={historySearch}
+                       onChange={(e) => setHistorySearch(e.target.value)}
+                       className="pl-9 pr-4 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#EAB308] outline-none"
+                     />
+                   </div>
+                   <div className="relative">
+                     <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+                     <select 
+                       value={historyFilter}
+                       onChange={(e) => setHistoryFilter(e.target.value)}
+                       className="pl-9 pr-8 py-2.5 bg-neutral-50 border border-neutral-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#EAB308] outline-none appearance-none cursor-pointer"
+                     >
+                       <option value="All">Semua Kategori</option>
+                       <option value="Absensi">Absensi</option>
+                       <option value="Laporan">Laporan</option>
+                     </select>
+                   </div>
+                </div>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b-2 border-neutral-100">
+                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Tanggal</th>
+                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Kategori</th>
+                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Keterangan / Alasan</th>
+                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider text-center">Evaluator</th>
+                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider text-center">Status / Skor</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {paginatedHistory.map((item, idx) => {
+                      let evaluatorStr = '-';
+                      if ((item as any).evaluatorId) {
+                        const rep = users.find(u => u.id === (item as any).evaluatorId);
+                        if (rep) {
+                          evaluatorStr = `${rep.name} (${rep.role === 'academic' ? 'PA' : 'HR'})`;
+                        }
+                      }
+                      
+                      return (
+                      <tr key={item.id + idx} className="hover:bg-neutral-50/50 transition-colors">
+                        <td className="py-4 px-4 text-sm font-bold text-neutral-800 whitespace-nowrap align-top">
+                          {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td className="py-4 px-4 align-top">
+                          <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200">
+                            {item.category}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-sm text-neutral-600 font-medium whitespace-pre-wrap min-w-[250px] align-top">
+                          {item.description}
+                        </td>
+                        <td className="py-4 px-4 text-sm text-neutral-600 text-center align-top whitespace-nowrap">
+                          {evaluatorStr}
+                        </td>
+                        <td className="py-4 px-4 text-center align-top">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getStatusBadge(item.status)}`}>
+                              {item.status}
+                            </span>
+                            {(item as any).impact && (
+                              <span className={`text-xs font-bold ${(item as any).impact > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {(item as any).impact > 0 ? '+' : ''}{(item as any).impact} Poin
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      )
+                    })}
+                    {paginatedHistory.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-12 text-center text-neutral-500 font-medium">Data tidak ditemukan.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-6 border-t border-neutral-100">
+                  <span className="text-sm text-neutral-500 font-medium">Halaman {currentPage} dari {totalPages}</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="p-2 rounded-xl border border-neutral-200 hover:bg-neutral-50 disabled:opacity-50 transition-colors"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button 
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="p-2 rounded-xl border border-neutral-200 hover:bg-neutral-50 disabled:opacity-50 transition-colors"
+                    >
+                      <ChevronRight className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'profile' && (
+          <motion.div key="profile" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
+            <div className="mb-8">
+              <h3 className="font-bold text-2xl text-neutral-800 mb-2">Profil & Pengaturan</h3>
+              <p className="text-neutral-500 font-medium">Perbarui informasi personal dan akademik Anda.</p>
+            </div>
+            <form onSubmit={handleUpdateProfile} className="bg-white border border-neutral-200 rounded-3xl shadow-xl shadow-neutral-200/30 overflow-hidden">
+               <div className="grid grid-cols-1 md:grid-cols-12 gap-0 divide-y md:divide-y-0 md:divide-x divide-neutral-100">
+                 
+                 {/* Left Column - Personal Info */}
+                 <div className="col-span-1 md:col-span-5 p-8 bg-neutral-50/50">
+                    <div className="flex flex-col items-center text-center mb-8">
+                      <div className="w-32 h-32 rounded-full bg-white border-4 border-white shadow-lg overflow-hidden relative group mb-4">
+                        {profilePhoto ? (
+                          <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-neutral-400 bg-neutral-100">
+                            <UserIcon className="w-12 h-12" />
+                          </div>
