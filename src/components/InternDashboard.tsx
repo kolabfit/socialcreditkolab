@@ -148,7 +148,10 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
   if (!currentUser) return null;
 
   const myActivities = activities.filter(a => (a.intern_id || a.internId) === currentUser.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  const myReports = reports.filter(r => r.targetId === currentUser.id).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const myReports = reports.filter(r => 
+    r.targetId === currentUser.id || 
+    (r.targetType === 'startup' && r.targetId === currentUser.startup)
+  ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   // Mock Score Trend Data
   const scoreTrendData7 = [
@@ -191,7 +194,8 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
       description: rpt.description,
       status: rpt.type === 'good' ? 'Positif' : 'Negatif',
       evaluatorId: rpt.reporterId,
-      impact: rpt.pointsImpact
+      impact: rpt.pointsImpact,
+      targetType: rpt.targetType
     })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [myReports]);
 
@@ -592,7 +596,10 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
                           {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </td>
                         <td className="py-4 px-4 text-sm text-neutral-600 font-medium whitespace-pre-wrap min-w-[250px] align-top">
-                          {item.description}
+                          {item.targetType === 'startup' && (
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-fuchsia-100 text-fuchsia-700 uppercase tracking-wider mb-2">Penilaian Tim (Startup)</span>
+                          )}
+                          <div className="whitespace-pre-wrap">{item.description}</div>
                         </td>
                         <td className="py-4 px-4 text-sm text-neutral-600 text-center align-top whitespace-nowrap">
                           {evaluatorStr}
