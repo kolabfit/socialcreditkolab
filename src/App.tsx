@@ -8,10 +8,19 @@ import AnimatedBackground from './components/AnimatedBackground';
 import { LogOut, User as UserIcon, BarChart3, Users, Star, FileText, Settings, AlertCircle, Menu, X } from 'lucide-react';
 
 function DashboardLayout() {
-  const { currentUser, logout } = useAppContext();
+  const { currentUser, logout, loading } = useAppContext();
 
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'users' | 'scores' | 'activities' | 'reports' | 'attendance' | 'settings' | 'profile' | 'incidents'>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-transparent relative z-50">
+        <div className="w-12 h-12 border-4 border-[#EAB308] border-t-transparent rounded-full animate-spin"></div>
+        <p className="mt-4 text-[#A16207] font-bold text-sm tracking-wider uppercase animate-pulse">Memuat Ko+Lab Hub...</p>
+      </div>
+    );
+  }
 
   if (!currentUser) return <Login />;
 

@@ -7,150 +7,15 @@ import {
   Users, Activity, FileText, BarChart3, Edit2, Save, X, Ban, 
   Trash2, Plus, ArrowUpRight, ArrowDownRight, Upload, 
   ImageIcon, ShieldCheck, Star, ShieldAlert, User as UserIcon,
-  Search, Filter, Eye, CheckCircle, AlertTriangle, MessageSquare, MoreVertical
+  Search, Filter, Eye, CheckCircle, AlertTriangle, MessageSquare, MoreVertical, Camera, Send, Clock, ChevronLeft, ChevronRight, AlertCircle
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, LineChart, Line } from 'recharts';
 import { Role } from '../types';
 import { getGrade } from '../utils';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
+import { DataTable } from './DataTable';
 
-// --- ADVANCED TABLE COMPONENT ---
-const AdvancedTable = ({ title, data, columns, startups, onDetail, onScore, onFinalScore, onDelete }: any) => {
-  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
-  React.useEffect(() => {
-    const handleClickOutside = () => setOpenActionMenuId(null);
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
-  const [search, setSearch] = useState('');
-  const [startupFilter, setStartupFilter] = useState('All');
-  const [statusFilter, setStatusFilter] = useState('All');
-
-  const filteredData = data.filter((item: any) => {
-    // A simplistic search across object values
-    const matchesSearch = JSON.stringify(item).toLowerCase().includes(search.toLowerCase());
-    const itemStartup = item.startup || item.targetStartup || 'None';
-    const matchesStartup = startupFilter === 'All' || itemStartup === startupFilter;
-    const itemStatus = item.status || 'Active';
-    const matchesStatus = statusFilter === 'All' || itemStatus === statusFilter;
-    return matchesSearch && matchesStartup && matchesStatus;
-  });
-
-  const pagination = usePagination(filteredData, 10);
-
-  return (
-    <div className="bg-white border border-neutral-100 rounded-3xl shadow-xl shadow-neutral-200/40 overflow-hidden">
-      <div className="p-6 border-b border-neutral-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-neutral-50/50">
-        <h3 className="font-bold text-lg text-neutral-800">{title}</h3>
-        <div className="flex flex-col md:flex-row items-center gap-3">
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
-            <input 
-              type="text" 
-              placeholder="Cari data..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-white border border-neutral-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#EAB308] outline-none"
-            />
-          </div>
-          <select 
-            value={startupFilter}
-            onChange={(e) => setStartupFilter(e.target.value)}
-            className="px-4 py-2 bg-white border border-neutral-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#EAB308] outline-none appearance-none cursor-pointer"
-          >
-            <option value="All">Semua Startup</option>
-            {startups.map((s: any) => <option key={s.id || s.name} value={s.name}>{s.name}</option>)}
-          </select>
-          <select 
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 bg-white border border-neutral-200 rounded-xl text-sm font-medium focus:ring-2 focus:ring-[#EAB308] outline-none appearance-none cursor-pointer"
-          >
-            <option value="All">Semua Status</option>
-            <option value="Active">Aktif / Disetujui</option>
-            <option value="Suspended">Suspended / Pending</option>
-          </select>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-white border-b-2 border-neutral-100">
-              {columns.map((col: any, idx: number) => (
-                <th key={idx} className="py-4 px-6 text-xs font-bold text-neutral-500 uppercase tracking-wider">{col.label}</th>
-              ))}
-              <th className="py-4 px-6 text-xs font-bold text-neutral-500 uppercase tracking-wider text-right">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-50">
-            {pagination.currentData.map((row: any, rIdx: number) => (
-              <tr key={rIdx} className="hover:bg-neutral-50/50 transition-colors group">
-                {columns.map((col: any, cIdx: number) => (
-                  <td key={cIdx} className="py-4 px-6 text-sm font-medium text-neutral-700">
-                    {col.render ? col.render(row) : row[col.key]}
-                  </td>
-                ))}
-                <td className="py-4 px-6 text-right">
-                  <div className="relative inline-block text-left opacity-100">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenActionMenuId(openActionMenuId === row.id ? null : row.id);
-                      }}
-                      className="w-8 h-8 rounded-lg text-neutral-500 hover:bg-neutral-100 flex items-center justify-center transition-colors"
-                    >
-                      <MoreVertical className="w-4 h-4" />
-                    </button>
-                    
-                    <AnimatePresence>
-                      {openActionMenuId === row.id && (
-                        <motion.div 
-                          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute right-0 top-10 mt-1 w-48 bg-white rounded-xl shadow-xl border border-neutral-100 z-50 overflow-hidden"
-                        >
-                          <div className="py-1 flex flex-col">
-                            {onDetail && (
-                              <button onClick={(e) => { e.stopPropagation(); setOpenActionMenuId(null); onDetail(row); }} className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors">
-                                <div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Eye className="w-3.5 h-3.5" /></div> Detail
-                              </button>
-                            )}
-                            {onScore && (
-                              <button onClick={(e) => { e.stopPropagation(); setOpenActionMenuId(null); onScore(row); }} className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors">
-                                <div className="w-6 h-6 rounded flex items-center justify-center bg-[#fef8e6] text-[#EAB308]"><Star className="w-3.5 h-3.5" /></div> Beri Nilai
-                              </button>
-                            )}
-                            {onFinalScore && (
-                              <button onClick={(e) => { e.stopPropagation(); setOpenActionMenuId(null); onFinalScore(row); }} className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors">
-                                <div className="w-6 h-6 rounded flex items-center justify-center bg-blue-50 text-blue-600"><Star className="w-3.5 h-3.5" /></div> Update Nilai Akhir
-                              </button>
-                            )}
-                            {onDelete && (
-                              <button onClick={(e) => { e.stopPropagation(); setOpenActionMenuId(null); onDelete(row); }} className="px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors">
-                                <div className="w-6 h-6 rounded flex items-center justify-center bg-red-50 text-red-600"><Trash2 className="w-3.5 h-3.5" /></div> Hapus
-                              </button>
-                            )}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {filteredData.length === 0 && (
-              <tr><td colSpan={columns.length + 1} className="py-8 text-center text-sm font-medium text-neutral-500">Tidak ada data ditemukan.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <Pagination {...pagination} />
-    </div>
-  );
-};
 
 
 export default function AcademicDashboard({ activeTab, setActiveTab }: { activeTab: string, setActiveTab?: (tab: any) => void }) {
@@ -187,6 +52,9 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
   const [rubricValues, setRubricValues] = useState<Record<string, number>>({});
 
   const [reportType, setReportType] = useState<'good' | 'bad'>('good');
+  const [reportDate, setReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [internSearch, setInternSearch] = useState('');
+  const [showInternDropdown, setShowInternDropdown] = useState(false);
   const [description, setDescription] = useState('');
   const [pointsImpact, setPointsImpact] = useState<number>(5);
   const [selectedAspectId, setSelectedAspectId] = useState('');
@@ -277,7 +145,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
         targetId: selectedTargetId,
         targetType: targetType,
         reporterId: currentUser.id,
-        date: new Date().toISOString(),
+        date: new Date(reportDate).toISOString(),
         type: reportType,
         description,
         photoUrl,
@@ -322,50 +190,59 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
         });
       }
     } else if (chartFilter === 'bulan') {
-      // Last 6 months
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
-      const currentMonth = currentDate.getMonth();
+      // 6 months starting from July
+      const months = ['Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
       const currentYear = currentDate.getFullYear();
+      const currentMonth = currentDate.getMonth();
       
-      for (let i = 5; i >= 0; i--) {
-        let targetMonthIndex = currentMonth - i;
-        let targetYear = currentYear;
-        if (targetMonthIndex < 0) {
-          targetMonthIndex += 12;
-          targetYear -= 1;
+      for (let i = 0; i < 6; i++) {
+        const targetMonthIndex = 6 + i;
+        const targetYear = currentYear;
+        
+        let score = 0;
+        if (targetYear > currentYear || (targetYear === currentYear && targetMonthIndex > currentMonth)) {
+          score = 0;
+        } else {
+          const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
+          let sumScores = 0;
+          interns.forEach(intern => {
+            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
+            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
+            sumScores += (intern.score - futurePointsImpact);
+          });
+          score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
         
-        const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
-        
-        let sumScores = 0;
-        interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
-        });
-        
         trendData.push({
-          name: months[targetMonthIndex],
-          score: Math.max(0, Math.round(sumScores / interns.length))
+          name: months[i],
+          score: score
         });
       }
     } else if (chartFilter === 'tahun') {
-      // Last 5 years
+      // 5 years starting from 2026
+      const startYear = 2026;
       const currentYear = currentDate.getFullYear();
-      for (let i = 4; i >= 0; i--) {
-        const targetYear = currentYear - i;
-        const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
+      
+      for (let i = 0; i < 5; i++) {
+        const targetYear = startYear + i;
         
-        let sumScores = 0;
-        interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
-        });
+        let score = 0;
+        if (targetYear > currentYear) {
+          score = 0;
+        } else {
+          const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
+          let sumScores = 0;
+          interns.forEach(intern => {
+            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
+            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
+            sumScores += (intern.score - futurePointsImpact);
+          });
+          score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
+        }
         
         trendData.push({
           name: targetYear.toString(),
-          score: Math.max(0, Math.round(sumScores / interns.length))
+          score: score
         });
       }
     }
@@ -378,10 +255,45 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
 
   // Columns for Tables
   const userColumns = [
-    { key: 'name', label: 'Nama Peserta', render: (row: any) => <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-neutral-200 overflow-hidden">{row.photoUrl ? <img src={row.photoUrl} className="w-full h-full object-cover"/> : <UserIcon className="w-full h-full p-1.5 text-neutral-400" />}</div><span className="font-bold">{row.name}</span></div> },
-    { key: 'startup', label: 'Startup', render: (row: any) => <span className="text-xs font-bold bg-[#EAB308]/10 text-yellow-700 px-3 py-1.5 rounded-lg border border-[#EAB308]/20">{row.startup || '-'}</span> },
-    { key: 'score', label: 'Skor Saat Ini', render: (row: any) => <span className="font-black text-lg">{row.score}</span> },
-    { key: 'status', label: 'Status', render: (row: any) => <span className={`text-xs font-bold px-3 py-1.5 rounded-lg ${row.status === 'suspended' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-green-100 text-green-700 border border-green-200'}`}>{row.status === 'suspended' ? 'Suspended' : 'Aktif'}</span> },
+    { key: 'name', label: 'Nama Peserta', filterable: true, render: (row: any) => <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-neutral-200 overflow-hidden">{row.photoUrl ? <img src={row.photoUrl} className="w-full h-full object-cover"/> : <UserIcon className="w-full h-full p-1.5 text-neutral-400" />}</div><span className="font-bold">{row.name}</span></div> },
+    { key: 'startup', label: 'Startup', filterable: true, render: (row: any) => <span className="text-xs font-bold bg-[#EAB308]/10 text-yellow-700 px-3 py-1.5 rounded-lg border border-[#EAB308]/20">{row.startup || '-'}</span> },
+    { key: 'score', label: 'Skor Saat Ini', filterable: true, render: (row: any) => <span className="font-black text-lg">{row.score}</span> },
+    { key: 'status', label: 'Status', filterable: true, render: (row: any) => <span className={`text-xs font-bold px-3 py-1.5 rounded-lg ${row.status === 'suspended' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-green-100 text-green-700 border border-green-200'}`}>{row.status === 'suspended' ? 'Suspended' : 'Aktif'}</span> },
+    { key: 'action', label: 'Aksi', filterable: false, render: (row: any) => (
+      <div className="flex items-center gap-2">
+        <button onClick={() => setSelectedInternDetail(row)} className="p-1.5 text-neutral-400 hover:text-[#EAB308] hover:bg-[#EAB308]/10 rounded-lg transition-colors" title="Lihat Detail"><Eye className="w-4 h-4" /></button>
+        <button onClick={() => {
+          setSelectedTargetId(row.id);
+          setTargetType('intern');
+          if (setActiveTab) setActiveTab('scores');
+        }} className="p-1.5 text-neutral-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Beri Penilaian"><Star className="w-4 h-4" /></button>
+        <button onClick={() => {
+           setRubricTargetUser(row);
+           const initialValues: Record<string, number> = {};
+           rubricAspects.forEach(r => {
+             initialValues[r.id] = row.rubricScores?.[r.id] || 0;
+           });
+           setRubricValues(initialValues);
+           setShowRubricScoreModal(true);
+        }} className="p-1.5 text-neutral-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Penilaian Rubrik"><CheckCircle className="w-4 h-4" /></button>
+        <button onClick={async () => {
+          const Swal = (await import('sweetalert2')).default;
+          const res = await Swal.fire({
+            title: 'Hapus pengguna?',
+            text: "Data yang dihapus tidak dapat dikembalikan!",
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ef4444',
+            cancelButtonColor: '#a3a3a3',
+            confirmButtonText: 'Ya, Hapus!'
+          });
+          if(res.isConfirmed) {
+            deleteUser(row.id);
+            Swal.fire('Terhapus!', 'Pengguna telah dihapus.', 'success');
+          }
+        }} className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus"><Trash2 className="w-4 h-4" /></button>
+      </div>
+    )}
   ];
 
 
@@ -552,29 +464,89 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                   </button>
                 </div>
 
-                {/* Target Dropdown */}
-                <div>
-                  <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">
-                    Pilih {targetType === 'intern' ? 'Peserta' : 'Startup'}
-                  </label>
-                  <select 
+                <div className="mb-6">
+                  <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">Tanggal Penilaian</label>
+                  <input
+                    type="date"
                     required
-                    value={selectedTargetId}
-                    onChange={(e) => setSelectedTargetId(e.target.value)}
-                    className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium appearance-none cursor-pointer transition-all"
-                  >
-                    <option value="">-- Pilih --</option>
-                    {targetType === 'intern' 
-                      ? interns.map(i => <option key={i.id} value={i.id}>{i.name} ({i.startup || '-'})</option>)
-                      : mentoredStartups.map(s => <option key={s.id || s.name} value={s.name}>{s.name}</option>)
-                    }
-                  </select>
-                  {selectedTargetId && targetType === 'intern' && (
-                    <p className="text-xs font-bold text-neutral-500 mt-2 ml-1 flex items-center gap-1">
-                      <Activity className="w-3.5 h-3.5" /> Skor Saat Ini: {interns.find(i => i.id === selectedTargetId)?.score || 0}
-                    </p>
-                  )}
+                    value={reportDate}
+                    onChange={(e) => setReportDate(e.target.value)}
+                    className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium transition-all"
+                  />
                 </div>
+
+                {/* Target Dropdown */}
+                {targetType === 'intern' ? (
+                  <div className="relative mb-6">
+                    <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">Pilih Peserta</label>
+                    <input
+                      type="text"
+                      placeholder="Cari Peserta Magang..."
+                      value={internSearch}
+                      onFocus={() => setShowInternDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowInternDropdown(false), 200)}
+                      onChange={(e) => {
+                         setInternSearch(e.target.value);
+                         setSelectedTargetId('');
+                         setShowInternDropdown(true);
+                      }}
+                      className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium transition-all"
+                    />
+                    {showInternDropdown && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-neutral-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                        {interns.filter(i => i.name.toLowerCase().includes(internSearch.toLowerCase())).map(i => (
+                          <button
+                            key={i.id}
+                            type="button"
+                            className="w-full text-left px-4 py-3 hover:bg-neutral-50 focus:bg-neutral-50 focus:outline-none"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelectedTargetId(i.id);
+                              setInternSearch(i.name);
+                              setShowInternDropdown(false);
+                            }}
+                          >
+                            <span className="block font-bold text-neutral-800">{i.name}</span>
+                            <span className="block text-xs text-neutral-500">{i.startup || 'Tidak ada startup'}</span>
+                          </button>
+                        ))}
+                        {interns.filter(i => i.name.toLowerCase().includes(internSearch.toLowerCase())).length === 0 && (
+                          <div className="px-4 py-3 text-sm text-neutral-500 text-center">Tidak ditemukan.</div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {selectedTargetId && (
+                      <div className="mt-4 p-5 bg-yellow-50/50 border border-[#EAB308]/20 rounded-2xl flex items-center justify-between">
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1">Skor Saat Ini</span>
+                          <span className="text-sm font-bold text-neutral-800 flex items-center gap-2">
+                            <UserIcon className="w-4 h-4 text-neutral-400" />
+                            {interns.find(i => i.id === selectedTargetId)?.name}
+                          </span>
+                        </div>
+                        <span className="text-3xl font-black text-[#EAB308]">
+                          {interns.find(i => i.id === selectedTargetId)?.score || 0}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mb-6">
+                    <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">
+                      Pilih Startup
+                    </label>
+                    <select 
+                      required
+                      value={selectedTargetId}
+                      onChange={(e) => setSelectedTargetId(e.target.value)}
+                      className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium appearance-none cursor-pointer transition-all"
+                    >
+                      <option value="">-- Pilih --</option>
+                      {mentoredStartups.map(s => <option key={s.id || s.name} value={s.name}>{s.name}</option>)}
+                    </select>
+                  </div>
+                )}
 
                 {/* Toggle Button */}
                 <div>
@@ -672,42 +644,11 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
         {/* 3. Data Tables */}
         {activeTab === 'users' && (
           <motion.div key="users" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-            <AdvancedTable 
+            <DataTable 
               title="Data Peserta Magang"
               data={interns}
               columns={userColumns}
-              startups={startups}
-              onDetail={(row: any) => setSelectedInternDetail(row)}
-              onScore={(row: any) => {
-                setSelectedTargetId(row.id);
-                setTargetType('intern');
-                if (setActiveTab) setActiveTab('scores');
-              }}
-              onFinalScore={(row: any) => {
-                 setRubricTargetUser(row);
-                 const initialValues: Record<string, number> = {};
-                 rubricAspects.forEach(r => {
-                   initialValues[r.id] = row.rubricScores?.[r.id] || 0;
-                 });
-                 setRubricValues(initialValues);
-                 setShowRubricScoreModal(true);
-              }}
-              onDelete={async (row: any) => {
-                const Swal = (await import('sweetalert2')).default;
-                const res = await Swal.fire({
-                  title: 'Hapus pengguna?',
-                  text: "Data yang dihapus tidak dapat dikembalikan!",
-                  icon: 'warning',
-                  showCancelButton: true,
-                  confirmButtonColor: '#ef4444',
-                  cancelButtonColor: '#a3a3a3',
-                  confirmButtonText: 'Ya, Hapus!'
-                });
-                if(res.isConfirmed) {
-                  deleteUser(row.id);
-                  Swal.fire('Terhapus!', 'Pengguna telah dihapus.', 'success');
-                }
-              }}
+              emptyMessage="Data peserta magang tidak ditemukan."
             />
           </motion.div>
         )}
@@ -716,13 +657,13 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
 
         {activeTab === 'reports' && (
           <motion.div key="reports" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}}>
-            <AdvancedTable 
+            <DataTable 
               title="Riwayat Penilaian (Laporan)"
               data={reports}
               columns={[
-                { key: 'date', label: 'Tanggal', render: (row: any) => new Date(row.date).toLocaleDateString() },
-                { key: 'reporter', label: 'Penilai', render: (row: any) => <span className="text-xs font-bold text-neutral-700">{users.find(u => u.id === row.reporterId)?.name || 'Unknown'}</span> },
-                { key: 'target', label: 'Target Evaluasi', render: (row: any) => {
+                { key: 'date', label: 'Tanggal', filterable: true, render: (row: any) => new Date(row.date).toLocaleDateString() },
+                { key: 'reporter', label: 'Penilai', filterable: true, render: (row: any) => <span className="text-xs font-bold text-neutral-700">{users.find(u => u.id === row.reporterId)?.name || 'Unknown'}</span> },
+                { key: 'target', label: 'Target Evaluasi', filterable: true, render: (row: any) => {
                   const targetUser = users.find(u => u.id === row.targetId);
                   const targetName = row.targetType === 'startup' ? row.targetId : (targetUser?.name || 'Unknown');
                   return (
@@ -741,26 +682,28 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                     </div>
                   );
                 }},
-                { key: 'description', label: 'Keterangan', render: (row: any) => <span className="text-xs">{row.description}</span> },
-                { key: 'pointsImpact', label: 'Poin', render: (row: any) => <span className={`font-bold ${row.pointsImpact > 0 ? 'text-green-600' : 'text-red-600'}`}>{row.pointsImpact > 0 ? '+' : ''}{row.pointsImpact}</span> }
+                { key: 'description', label: 'Keterangan', filterable: true, render: (row: any) => <span className="text-xs">{row.description}</span> },
+                { key: 'pointsImpact', label: 'Poin', filterable: true, render: (row: any) => <span className={`font-bold ${row.pointsImpact > 0 ? 'text-green-600' : 'text-red-600'}`}>{row.pointsImpact > 0 ? '+' : ''}{row.pointsImpact}</span> },
+                { key: 'action', label: 'Aksi', filterable: false, render: (row: any) => (
+                  <button onClick={async () => {
+                    const Swal = (await import('sweetalert2')).default;
+                    const res = await Swal.fire({
+                      title: 'Hapus penilaian?',
+                      text: "Data yang dihapus tidak dapat dikembalikan!",
+                      icon: 'warning',
+                      showCancelButton: true,
+                      confirmButtonColor: '#ef4444',
+                      cancelButtonColor: '#a3a3a3',
+                      confirmButtonText: 'Ya, Hapus!'
+                    });
+                    if(res.isConfirmed) {
+                      deleteReport(row.id);
+                      Swal.fire('Terhapus!', 'Penilaian telah dihapus.', 'success');
+                    }
+                  }} className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Hapus"><Trash2 className="w-4 h-4" /></button>
+                )}
               ]}
-              startups={startups}
-              onDelete={async (row: any) => {
-                const Swal = (await import('sweetalert2')).default;
-                const res = await Swal.fire({
-                  title: 'Hapus riwayat penilaian?',
-                  text: "Data yang dihapus tidak dapat dikembalikan!",
-                  icon: 'warning',
-                  showCancelButton: true,
-                  confirmButtonColor: '#ef4444',
-                  cancelButtonColor: '#a3a3a3',
-                  confirmButtonText: 'Ya, Hapus!'
-                });
-                if(res.isConfirmed) {
-                  deleteReport(row.id);
-                  Swal.fire('Terhapus!', 'Riwayat penilaian telah dihapus.', 'success');
-                }
-              }}
+              emptyMessage="Data penilaian tidak ditemukan."
             />
           </motion.div>
         )}

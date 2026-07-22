@@ -10,6 +10,7 @@ import { Role } from '../types';
 import { getGrade } from '../utils';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
+import { DataTable } from './DataTable';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -197,6 +198,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
   const [selectedTargetId, setSelectedTargetId] = useState<string>('');
   const [targetType, setTargetType] = useState<'intern' | 'startup'>('intern');
   const [reportType, setReportType] = useState<'good' | 'bad'>('good');
+  const [reportDate, setReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [pointsImpact, setPointsImpact] = useState<number>(5);
   const [selectedAspectId, setSelectedAspectId] = useState<string>('');
@@ -423,7 +425,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
         targetId: selectedTargetId,
         targetType: targetType,
         reporterId: currentUser.id,
-        date: new Date().toISOString(),
+        date: new Date(reportDate).toISOString(),
         type: reportType,
         description,
         photoUrl,
@@ -476,50 +478,59 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
         });
       }
     } else if (chartFilter === 'bulan') {
-      // Last 6 months
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
-      const currentMonth = currentDate.getMonth();
+      // 6 months starting from July
+      const months = ['Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
       const currentYear = currentDate.getFullYear();
+      const currentMonth = currentDate.getMonth();
       
-      for (let i = 5; i >= 0; i--) {
-        let targetMonthIndex = currentMonth - i;
-        let targetYear = currentYear;
-        if (targetMonthIndex < 0) {
-          targetMonthIndex += 12;
-          targetYear -= 1;
+      for (let i = 0; i < 6; i++) {
+        const targetMonthIndex = 6 + i;
+        const targetYear = currentYear;
+        
+        let score = 0;
+        if (targetYear > currentYear || (targetYear === currentYear && targetMonthIndex > currentMonth)) {
+          score = 0;
+        } else {
+          const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
+          let sumScores = 0;
+          interns.forEach(intern => {
+            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
+            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
+            sumScores += (intern.score - futurePointsImpact);
+          });
+          score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
         
-        const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
-        
-        let sumScores = 0;
-        interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
-        });
-        
         trendData.push({
-          name: months[targetMonthIndex],
-          score: Math.max(0, Math.round(sumScores / interns.length))
+          name: months[i],
+          score: score
         });
       }
     } else if (chartFilter === 'tahun') {
-      // Last 5 years
+      // 5 years starting from 2026
+      const startYear = 2026;
       const currentYear = currentDate.getFullYear();
-      for (let i = 4; i >= 0; i--) {
-        const targetYear = currentYear - i;
-        const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
+      
+      for (let i = 0; i < 5; i++) {
+        const targetYear = startYear + i;
         
-        let sumScores = 0;
-        interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
-        });
+        let score = 0;
+        if (targetYear > currentYear) {
+          score = 0;
+        } else {
+          const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
+          let sumScores = 0;
+          interns.forEach(intern => {
+            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
+            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
+            sumScores += (intern.score - futurePointsImpact);
+          });
+          score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
+        }
         
         trendData.push({
           name: targetYear.toString(),
-          score: Math.max(0, Math.round(sumScores / interns.length))
+          score: score
         });
       }
     }
@@ -711,178 +722,203 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm whitespace-nowrap">
-                  <thead className="bg-neutral-50 text-neutral-600 border-b border-neutral-100">
-                    <tr>
-                      <th className="p-4 w-10"><input type="checkbox" onChange={(e) => setSelectedUserIds(e.target.checked ? activeUsersList.map(u => u.id) : [])} checked={selectedUserIds.length === activeUsersList.length && activeUsersList.length > 0} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" /></th>
-                      <th className="p-4 font-semibold text-neutral-600">Info Utama</th>
-                      <th className="p-4 font-semibold text-neutral-600">Kontak</th>
-                      {userTab === 'intern' && <th className="p-4 font-semibold text-neutral-600">Akademik & Startup</th>}
-                      {userTab === 'academic' && <th className="p-4 font-semibold text-neutral-600">Startup Bimbingan</th>}
-                      {userTab === 'intern' && <th className="p-4 font-semibold text-neutral-600">Performa</th>}
-                      <th className="p-4 font-semibold text-neutral-600">Status</th>
-                      <th className="p-4 font-semibold text-neutral-600">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {paginationUsers.currentData.map(user => (
-                      <tr key={user.id} className={`hover:bg-neutral-50/50 transition-colors ${user.status === 'suspended' ? 'opacity-50 grayscale' : ''}`}>
-                        <td className="p-4"><input type="checkbox" checked={selectedUserIds.includes(user.id)} onChange={(e) => {
-                          if (e.target.checked) setSelectedUserIds([...selectedUserIds, user.id]);
-                          else setSelectedUserIds(selectedUserIds.filter(id => id !== user.id));
-                        }} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" /></td>
-                        <td className="p-4">
-                          <p className="font-bold text-neutral-800">{user.name}</p>
-                          {userTab === 'intern' && <p className="text-xs text-neutral-500 mt-0.5">Panggilan: {user.nickname || '-'}</p>}
-                        </td>
-                        <td className="p-4">
-                          <p className="text-sm font-medium text-neutral-700">{user.email}</p>
-                          <p className="text-xs text-neutral-500 mt-0.5">{user.phone || 'No telp -'}</p>
-                        </td>
-                        {userTab === 'intern' && (
-                          <td className="p-4">
-                            <p className="font-medium text-neutral-700">{user.startup || '-'}</p>
-                            <p className="text-xs text-neutral-500 mt-0.5">NIM: {user.nim || '-'}</p>
-                          </td>
-                        )}
-                        {userTab === 'academic' && (
-                          <td className="p-4">
-                            <p className="font-medium text-neutral-700">{user.advisedStartups ? user.advisedStartups.join(', ') : '-'}</p>
-                            <p className="text-xs text-neutral-500 mt-0.5">Kode: {user.lecturerCode || '-'}</p>
-                          </td>
-                        )}
-                        {userTab === 'intern' && (
-                          <td className="p-4">
-                            <div className="flex flex-col gap-1">
-                               <div className="flex items-center gap-1 font-bold text-[#EAB308]"><Star className="w-4 h-4 fill-[#EAB308]"/> {user.score} (Nilai {getGrade(user.score)})</div>
-                            </div>
-                          </td>
-                        )}
-                        <td className="p-4">
-                          {user.status === 'suspended' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">
-                              <Ban className="w-3 h-3" /> Suspended
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700">
-                              <ShieldCheck className="w-3 h-3" /> Active
-                            </span>
+              <DataTable
+                title={userTab === 'intern' ? 'Data Peserta Magang' : 'Data Dosen Pembimbing'}
+                data={activeUsersList}
+                emptyMessage="Tidak ada data pengguna."
+                columns={[
+                  {
+                    key: 'checkbox',
+                    label: <input type="checkbox" onChange={(e) => setSelectedUserIds(e.target.checked ? activeUsersList.map(u => u.id) : [])} checked={selectedUserIds.length === activeUsersList.length && activeUsersList.length > 0} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" />,
+                    filterable: false,
+                    render: (user) => <input type="checkbox" checked={selectedUserIds.includes(user.id)} onChange={(e) => {
+                      if (e.target.checked) setSelectedUserIds([...selectedUserIds, user.id]);
+                      else setSelectedUserIds(selectedUserIds.filter(id => id !== user.id));
+                    }} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" />
+                  },
+                  {
+                    key: 'info',
+                    label: 'Info Utama',
+                    filterable: true,
+                    render: (user) => (
+                      <div>
+                        <p className="font-bold text-neutral-800">{user.name}</p>
+                        {userTab === 'intern' && <p className="text-xs text-neutral-500 mt-0.5">Panggilan: {user.nickname || '-'}</p>}
+                      </div>
+                    )
+                  },
+                  {
+                    key: 'contact',
+                    label: 'Kontak',
+                    filterable: true,
+                    render: (user) => (
+                      <div>
+                        <p className="text-sm font-medium text-neutral-700">{user.email}</p>
+                        <p className="text-xs text-neutral-500 mt-0.5">{user.phone || 'No telp -'}</p>
+                      </div>
+                    )
+                  },
+                  ...(userTab === 'intern' ? [
+                    {
+                      key: 'academic',
+                      label: 'Akademik & Startup',
+                      filterable: true,
+                      render: (user) => (
+                        <div>
+                          <p className="font-medium text-neutral-700">{user.startup || '-'}</p>
+                          <p className="text-xs text-neutral-500 mt-0.5">NIM: {user.nim || '-'}</p>
+                        </div>
+                      )
+                    },
+                    {
+                      key: 'performance',
+                      label: 'Performa',
+                      filterable: true,
+                      render: (user) => (
+                        <div className="flex flex-col gap-1">
+                           <div className="flex items-center gap-1 font-bold text-[#EAB308]"><Star className="w-4 h-4 fill-[#EAB308]"/> {user.score} (Nilai {getGrade(user.score)})</div>
+                        </div>
+                      )
+                    }
+                  ] : []),
+                  ...(userTab === 'academic' ? [
+                    {
+                      key: 'advisedStartups',
+                      label: 'Startup Bimbingan',
+                      filterable: true,
+                      render: (user) => (
+                        <div>
+                          <p className="font-medium text-neutral-700">{user.advisedStartups ? user.advisedStartups.join(', ') : '-'}</p>
+                          <p className="text-xs text-neutral-500 mt-0.5">Kode: {user.lecturerCode || '-'}</p>
+                        </div>
+                      )
+                    }
+                  ] : []),
+                  {
+                    key: 'status',
+                    label: 'Status',
+                    filterable: true,
+                    render: (user) => user.status === 'suspended' ? (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">
+                        <Ban className="w-3 h-3" /> Suspended
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700">
+                        <ShieldCheck className="w-3 h-3" /> Active
+                      </span>
+                    )
+                  },
+                  {
+                    key: 'action',
+                    label: 'Aksi',
+                    filterable: false,
+                    render: (user) => (
+                      <div className="relative">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenActionMenuId(openActionMenuId === user.id ? null : user.id);
+                          }}
+                          className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100 transition-colors"
+                        >
+                          <MoreVertical className="w-5 h-5" />
+                        </button>
+                        
+                        <AnimatePresence>
+                          {openActionMenuId === user.id && (
+                            <motion.div 
+                              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                              animate={{ opacity: 1, scale: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                              transition={{ duration: 0.15 }}
+                              className="absolute right-8 top-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-neutral-100 z-50 overflow-hidden"
+                            >
+                              <div className="py-2 flex flex-col">
+                                {userTab === 'intern' && (
+                                  <>
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); setSelectedInternDetail(user); setOpenActionMenuId(null); }}
+                                      className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
+                                    >
+                                      <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center"><Eye className="w-4 h-4" /></div> Detail Peserta
+                                    </button>
+                                    <button 
+                                      onClick={(e) => { 
+                                        e.stopPropagation();
+                                        setRubricTargetUser(user);
+                                        const initialValues = {};
+                                        rubricAspects.forEach(r => {
+                                          initialValues[r.id] = user.rubricScores?.[r.id] || 0;
+                                        });
+                                        setRubricValues(initialValues);
+                                        setShowRubricScoreModal(true);
+                                        setOpenActionMenuId(null);
+                                      }}
+                                      className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
+                                    >
+                                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><Star className="w-4 h-4" /></div> Update Nilai Akhir
+                                    </button>
+                                  </>
+                                )}
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingUserId(user.id);
+                                    setEditUserName(user.name);
+                                    setEditUserEmail(user.email);
+                                    setEditUserRole(user.role);
+                                    setEditUserStartup(user.startup || '');
+                                    setEditUserNim(user.nim || '');
+                                    setEditUserPhone(user.phone || '');
+                                    setEditUserNickname(user.nickname || '');
+                                    setEditUserLecturerCode(user.lecturerCode || '');
+                                    setEditUserAdvisedStartups(user.advisedStartups ? user.advisedStartups.join(', ') : '');
+                                    setEditUserPassword('');
+                                    setOpenActionMenuId(null);
+                                  }}
+                                  className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
+                                >
+                                  <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center"><Edit2 className="w-4 h-4" /></div> Edit Profil
+                                </button>
+                                <div className="h-px bg-neutral-100 my-1 mx-4"></div>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); suspendUser(user.id, user.status !== 'suspended'); setOpenActionMenuId(null); }}
+                                  className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
+                                >
+                                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${user.status === 'suspended' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}><Ban className="w-4 h-4" /></div> {user.status === 'suspended' ? 'Aktifkan Akun' : 'Suspend Akun'}
+                                </button>
+                                <button 
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    setOpenActionMenuId(null);
+                                    const Swal = (await import('sweetalert2')).default;
+                                    const res = await Swal.fire({
+                                      title: 'Hapus pengguna?',
+                                      text: "Data yang dihapus tidak dapat dikembalikan!",
+                                      icon: 'warning',
+                                      showCancelButton: true,
+                                      confirmButtonColor: '#ef4444',
+                                      cancelButtonColor: '#a3a3a3',
+                                      confirmButtonText: 'Ya, Hapus!'
+                                    });
+                                    if(res.isConfirmed) {
+                                      deleteUser(user.id);
+                                      Swal.fire('Terhapus!', 'Pengguna telah dihapus.', 'success');
+                                    }
+                                  }}
+                                  className="px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
+                                >
+                                  <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center"><Trash2 className="w-4 h-4" /></div> Hapus Pengguna
+                                </button>
+                              </div>
+                            </motion.div>
                           )}
-                        </td>
-                        <td className="p-4">
-                           <div className="relative">
-                             <button 
-                               onClick={(e) => {
-                                 e.stopPropagation();
-                                 setOpenActionMenuId(openActionMenuId === user.id ? null : user.id);
-                               }}
-                               className="p-2 rounded-lg text-neutral-500 hover:bg-neutral-100 transition-colors"
-                             >
-                               <MoreVertical className="w-5 h-5" />
-                             </button>
-                             
-                             <AnimatePresence>
-                               {openActionMenuId === user.id && (
-                                 <motion.div 
-                                   initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                                   animate={{ opacity: 1, scale: 1, y: 0 }}
-                                   exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                                   transition={{ duration: 0.15 }}
-                                   className="absolute right-8 top-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-neutral-100 z-50 overflow-hidden"
-                                 >
-                                   <div className="py-2 flex flex-col">
-                                     {userTab === 'intern' && (
-                                       <>
-                                         <button 
-                                           onClick={(e) => { e.stopPropagation(); setSelectedInternDetail(user); setOpenActionMenuId(null); }}
-                                           className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
-                                         >
-                                           <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center"><Eye className="w-4 h-4" /></div> Detail Peserta
-                                         </button>
-                                         <button 
-                                           onClick={(e) => { 
-                                             e.stopPropagation();
-                                             setRubricTargetUser(user);
-                                             const initialValues: Record<string, number> = {};
-                                             rubricAspects.forEach(r => {
-                                               initialValues[r.id] = user.rubricScores?.[r.id] || 0;
-                                             });
-                                             setRubricValues(initialValues);
-                                             setShowRubricScoreModal(true);
-                                             setOpenActionMenuId(null);
-                                           }}
-                                           className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
-                                         >
-                                           <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><Star className="w-4 h-4" /></div> Update Nilai Akhir
-                                         </button>
-                                       </>
-                                     )}
-                                     <button 
-                                       onClick={(e) => {
-                                         e.stopPropagation();
-                                         setEditingUserId(user.id);
-                                         setEditUserName(user.name);
-                                         setEditUserEmail(user.email);
-                                         setEditUserRole(user.role);
-                                         setEditUserStartup(user.startup || '');
-                                         setEditUserNim(user.nim || '');
-                                         setEditUserPhone(user.phone || '');
-                                         setEditUserNickname(user.nickname || '');
-                                         setEditUserLecturerCode(user.lecturerCode || '');
-                                         setEditUserAdvisedStartups(user.advisedStartups ? user.advisedStartups.join(', ') : '');
-                                         setEditUserPassword('');
-                                         setOpenActionMenuId(null);
-                                       }}
-                                       className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
-                                     >
-                                       <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center"><Edit2 className="w-4 h-4" /></div> Edit Profil
-                                     </button>
-                                     <div className="h-px bg-neutral-100 my-1 mx-4"></div>
-                                     <button 
-                                       onClick={(e) => { e.stopPropagation(); suspendUser(user.id, user.status !== 'suspended'); setOpenActionMenuId(null); }}
-                                       className="px-4 py-2.5 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 flex items-center gap-3 transition-colors"
-                                     >
-                                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${user.status === 'suspended' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}><Ban className="w-4 h-4" /></div> {user.status === 'suspended' ? 'Aktifkan Akun' : 'Suspend Akun'}
-                                     </button>
-                                     <button 
-                                       onClick={async (e) => {
-                                         e.stopPropagation();
-                                         setOpenActionMenuId(null);
-                                         const Swal = (await import('sweetalert2')).default;
-                                         const res = await Swal.fire({
-                                           title: 'Hapus pengguna?',
-                                           text: "Data yang dihapus tidak dapat dikembalikan!",
-                                           icon: 'warning',
-                                           showCancelButton: true,
-                                           confirmButtonColor: '#ef4444',
-                                           cancelButtonColor: '#a3a3a3',
-                                           confirmButtonText: 'Ya, Hapus!'
-                                         });
-                                         if(res.isConfirmed) {
-                                           deleteUser(user.id);
-                                           Swal.fire('Terhapus!', 'Pengguna telah dihapus.', 'success');
-                                         }
-                                       }}
-                                       className="px-4 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
-                                     >
-                                       <div className="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center"><Trash2 className="w-4 h-4" /></div> Hapus Pengguna
-                                     </button>
-                                   </div>
-                                 </motion.div>
-                               )}
-                             </AnimatePresence>
-                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {activeUsersList.length === 0 && (
-                       <tr><td colSpan={userTab === 'intern' ? 7 : 6} className="p-8 text-center text-neutral-500 font-medium">Tidak ada data pengguna.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination {...paginationUsers} />
+                        </AnimatePresence>
+                      </div>
+                    )
+                  }
+                ]}
+              />
               
               <AnimatePresence>
                 {selectedUserIds.length > 0 && (
@@ -954,8 +990,19 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                     </button>
                   </div>
 
+                  <div className="mb-6">
+                    <label className="block text-sm font-semibold text-neutral-700 mb-2">Tanggal Penilaian</label>
+                    <input
+                      type="date"
+                      required
+                      value={reportDate}
+                      onChange={(e) => setReportDate(e.target.value)}
+                      className="w-full p-3.5 bg-white border border-neutral-200 rounded-xl focus:ring-2 focus:ring-[#EAB308] outline-none font-medium transition-all shadow-sm"
+                    />
+                  </div>
+
                   {targetType === 'intern' ? (
-                    <div className="relative">
+                    <div className="relative mb-6">
                       <label className="block text-sm font-semibold text-neutral-700 mb-2">Pilih Peserta Magang</label>
                       <input
                         type="text"
@@ -991,6 +1038,18 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                           {interns.filter(i => i.name.toLowerCase().includes(internSearch.toLowerCase())).length === 0 && (
                             <div className="px-4 py-3 text-sm text-neutral-500 text-center">Tidak ditemukan.</div>
                           )}
+                        </div>
+                      )}
+                      
+                      {selectedTargetId && (
+                        <div className="mt-3 p-4 bg-yellow-50/50 border border-[#EAB308]/20 rounded-xl flex items-center justify-between">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Skor Saat Ini</span>
+                            <span className="text-sm font-bold text-neutral-800">{interns.find(i => i.id === selectedTargetId)?.name}</span>
+                          </div>
+                          <span className="text-2xl font-black text-[#EAB308]">
+                            {interns.find(i => i.id === selectedTargetId)?.score || 0}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -1237,101 +1296,121 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                   </motion.div>
                 )}
               </AnimatePresence>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-neutral-50 text-neutral-600 border-b border-neutral-100">
-                    <tr>
-                      <th className="p-4 w-10"><input type="checkbox" onChange={(e) => setSelectedReportIds(e.target.checked ? reports.map(r => r.id) : [])} checked={selectedReportIds.length === reports.length && reports.length > 0} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" /></th>
-                      <th className="p-4 font-semibold text-neutral-600">Pelapor & Waktu</th>
-                      <th className="p-4 font-semibold text-neutral-600">Target Evaluasi</th>
-                      <th className="p-4 font-semibold text-neutral-600">Kredit Score</th>
-                      <th className="p-4 font-semibold text-neutral-600">Keterangan</th>
-                      <th className="p-4 font-semibold text-neutral-600">Lampiran</th>
-                      <th className="p-4 font-semibold text-neutral-600">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {paginationReports.currentData.map(report => {
-                      const targetUser = users.find(u => u.id === report.targetId);
+              <DataTable
+                title="Riwayat Penilaian (Laporan)"
+                data={reports}
+                emptyMessage="Belum ada riwayat laporan."
+                columns={[
+                  {
+                    key: 'checkbox',
+                    label: <input type="checkbox" onChange={(e) => setSelectedReportIds(e.target.checked ? reports.map(r => r.id) : [])} checked={selectedReportIds.length === reports.length && reports.length > 0} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" />,
+                    filterable: false,
+                    render: (report) => <input type="checkbox" checked={selectedReportIds.includes(report.id)} onChange={(e) => {
+                      if (e.target.checked) setSelectedReportIds([...selectedReportIds, report.id]);
+                      else setSelectedReportIds(selectedReportIds.filter(id => id !== report.id));
+                    }} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" />
+                  },
+                  {
+                    key: 'reporter',
+                    label: 'Pelapor & Waktu',
+                    filterable: true,
+                    render: (report) => {
                       const reporter = users.find(u => u.id === report.reporterId);
-                      const targetName = report.targetType === 'startup' ? report.targetId : (targetUser?.name || 'Unknown');
-                      
                       return (
-                        <tr key={report.id} className="hover:bg-neutral-50/50 transition-colors">
-                          <td className="p-4"><input type="checkbox" checked={selectedReportIds.includes(report.id)} onChange={(e) => {
-                            if (e.target.checked) setSelectedReportIds([...selectedReportIds, report.id]);
-                            else setSelectedReportIds(selectedReportIds.filter(id => id !== report.id));
-                          }} className="rounded text-[#EAB308] focus:ring-[#EAB308] w-4 h-4" /></td>
-                          <td className="p-4">
-                            <p className="font-bold text-neutral-800 text-sm">{reporter?.name || 'Unknown'}</p>
-                            <p className="text-xs font-medium text-neutral-500 mt-1">{new Date(report.date).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short'})}</p>
-                          </td>
-                          <td className="p-4">
-                             <p className="font-bold text-neutral-800">{targetName}</p>
-                             <div className="mt-1">
-                               {report.targetType === 'startup' ? (
-                                 <span className="inline-flex text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Startup Team</span>
-                               ) : (
-                                 <span className="inline-flex text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Intern / Individu</span>
-                               )}
-                             </div>
-                             {targetUser?.startup && report.targetType !== 'startup' && <p className="text-xs text-neutral-500 mt-1">Tim: {targetUser.startup}</p>}
-                          </td>
-                          <td className="p-4">
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-bold ${report.pointsImpact > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                {report.pointsImpact > 0 ? `+${report.pointsImpact}` : report.pointsImpact} Poin
-                              </span>
-                              <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">{report.type === 'good' ? 'Tindakan Baik' : 'Pelanggaran'}</span>
-                            </div>
-                          </td>
-                          <td className="p-4 max-w-sm">
-                            <div className="bg-white border border-neutral-100 p-3 rounded-xl shadow-sm">
-                              <p className="text-neutral-700 text-xs font-medium leading-relaxed">{report.description}</p>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 text-sm text-neutral-600">
-                            {report.photoUrl ? (
-                              <button onClick={() => setViewedPhotoUrl(report.photoUrl)} className="block w-16 h-16 rounded-xl overflow-hidden shadow-sm border border-neutral-200 hover:ring-2 hover:ring-[#EAB308] transition-all">
-                                <img src={report.photoUrl} alt="Bukti" className="w-full h-full object-cover" />
-                              </button>
-                            ) : '-'}
-                          </td>
-                          <td className="p-4">
-                            <button onClick={() => {
-                              import('sweetalert2').then(Swal => {
-                                Swal.default.fire({
-                                  title: 'Hapus Laporan?',
-                                  text: "Aksi ini tidak dapat dibatalkan dan skor akan dikembalikan.",
-                                  icon: 'warning',
-                                  showCancelButton: true,
-                                  confirmButtonColor: '#ef4444',
-                                  cancelButtonColor: '#d1d5db',
-                                  confirmButtonText: 'Ya, hapus!',
-                                  cancelButtonText: 'Batal'
-                                }).then((result) => {
-                                  if (result.isConfirmed) {
-                                    deleteReport(report.id);
-                                    Swal.default.fire('Terhapus!', 'Laporan telah dihapus.', 'success');
-                                  }
-                                });
-                              });
-                            }} className="p-2 hover:bg-red-50 rounded-lg transition-colors text-neutral-400 hover:text-red-500" title="Hapus Laporan">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
+                        <div>
+                          <p className="font-bold text-neutral-800 text-sm">{reporter?.name || 'Unknown'}</p>
+                          <p className="text-xs font-medium text-neutral-500 mt-1">{new Date(report.date).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short'})}</p>
+                        </div>
                       )
-                    })}
-                    {reports.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="p-8 text-center text-neutral-500 font-medium">Belum ada riwayat laporan.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination {...paginationReports} />
+                    }
+                  },
+                  {
+                    key: 'target',
+                    label: 'Target Evaluasi',
+                    filterable: true,
+                    render: (report) => {
+                      const targetUser = users.find(u => u.id === report.targetId);
+                      const targetName = report.targetType === 'startup' ? report.targetId : (targetUser?.name || 'Unknown');
+                      return (
+                        <div>
+                           <p className="font-bold text-neutral-800">{targetName}</p>
+                           <div className="mt-1">
+                             {report.targetType === 'startup' ? (
+                               <span className="inline-flex text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Startup Team</span>
+                             ) : (
+                               <span className="inline-flex text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">Intern / Individu</span>
+                             )}
+                           </div>
+                           {targetUser?.startup && report.targetType !== 'startup' && <p className="text-xs text-neutral-500 mt-1">Tim: {targetUser.startup}</p>}
+                        </div>
+                      )
+                    }
+                  },
+                  {
+                    key: 'pointsImpact',
+                    label: 'Kredit Score',
+                    filterable: true,
+                    render: (report) => (
+                      <div className="flex flex-col gap-1 items-start">
+                        <span className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-bold ${report.pointsImpact > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {report.pointsImpact > 0 ? `+${report.pointsImpact}` : report.pointsImpact} Poin
+                        </span>
+                        <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">{report.type === 'good' ? 'Tindakan Baik' : 'Pelanggaran'}</span>
+                      </div>
+                    )
+                  },
+                  {
+                    key: 'description',
+                    label: 'Keterangan',
+                    filterable: true,
+                    render: (report) => (
+                      <div className="bg-white border border-neutral-100 p-3 rounded-xl shadow-sm max-w-sm">
+                        <p className="text-neutral-700 text-xs font-medium leading-relaxed">{report.description}</p>
+                      </div>
+                    )
+                  },
+                  {
+                    key: 'lampiran',
+                    label: 'Lampiran',
+                    filterable: false,
+                    render: (report) => (
+                      report.photoUrl ? (
+                        <button onClick={() => setViewedPhotoUrl(report.photoUrl)} className="block w-16 h-16 rounded-xl overflow-hidden shadow-sm border border-neutral-200 hover:ring-2 hover:ring-[#EAB308] transition-all">
+                          <img src={report.photoUrl} alt="Bukti" className="w-full h-full object-cover" />
+                        </button>
+                      ) : '-'
+                    )
+                  },
+                  {
+                    key: 'action',
+                    label: 'Aksi',
+                    filterable: false,
+                    render: (report) => (
+                      <button onClick={() => {
+                        import('sweetalert2').then(Swal => {
+                          Swal.default.fire({
+                            title: 'Hapus Laporan?',
+                            text: "Aksi ini tidak dapat dibatalkan dan skor akan dikembalikan.",
+                            icon: 'warning',
+                            showCancelButton: true,
+                            confirmButtonColor: '#ef4444',
+                            cancelButtonColor: '#d1d5db',
+                            confirmButtonText: 'Ya, hapus!',
+                            cancelButtonText: 'Batal'
+                          }).then((result) => {
+                            if (result.isConfirmed) {
+                              deleteReport(report.id);
+                              Swal.default.fire('Terhapus!', 'Laporan telah dihapus.', 'success');
+                            }
+                          });
+                        });
+                      }} className="p-2 hover:bg-red-50 rounded-lg transition-colors text-neutral-400 hover:text-red-500" title="Hapus Laporan">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  }
+                ]}
+              />
             </motion.div>
           )}
           
@@ -1411,50 +1490,54 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                       }} className="px-3 py-1.5 bg-black text-[#EAB308] rounded-xl hover:bg-neutral-800 text-xs font-bold flex items-center gap-1 transition-colors"><Plus className="w-4 h-4"/> Tambah</button>
                     </div>
                     
-                    <div className="overflow-x-auto flex-1">
-                      <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="bg-neutral-50 text-neutral-600 border-b border-neutral-100">
-                          <tr>
-                            <th className="p-3 font-semibold text-neutral-600">Nama Batch</th>
-                            <th className="p-3 font-semibold text-neutral-600">Rentang Tanggal</th>
-                            <th className="p-3 font-semibold text-neutral-600">Status</th>
-                            <th className="p-3 font-semibold text-neutral-600">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-100">
-                          {batches.map((batch) => (
-                            <tr key={batch.id} className="hover:bg-neutral-50/50 transition-colors">
-                              <td className="p-3 font-bold text-neutral-800">{batch.name}</td>
-                              <td className="p-3 text-neutral-600 text-xs font-medium">{batch.date_range}</td>
-                              <td className="p-3">
-                                {batch.status === 'active' ? (
-                                  <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider">Aktif</span>
-                                ) : (
-                                  <span className="bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider">Selesai</span>
-                                )}
-                              </td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-2">
-                                  <button onClick={() => {
-                                    setEditingBatch(batch);
-                                    setBatchFormData({ name: batch.name, date_range: batch.date_range, status: batch.status });
-                                    setShowBatchModal(true);
-                                  }} className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors">
-                                    <Edit2 className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => handleDeleteBatch(batch.id)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors">
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                          {batches.length === 0 && (
-                            <tr><td colSpan={4} className="p-8 text-center text-neutral-500">Belum ada data batch.</td></tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                    <DataTable
+                      title=""
+                      data={batches}
+                      emptyMessage="Belum ada data batch."
+                      columns={[
+                        {
+                          key: 'name',
+                          label: 'Nama Batch',
+                          filterable: true,
+                          render: (batch) => <span className="font-bold text-neutral-800">{batch.name}</span>
+                        },
+                        {
+                          key: 'date_range',
+                          label: 'Rentang Tanggal',
+                          filterable: true,
+                          render: (batch) => <span className="text-neutral-600 text-xs font-medium">{batch.date_range}</span>
+                        },
+                        {
+                          key: 'status',
+                          label: 'Status',
+                          filterable: true,
+                          render: (batch) => batch.status === 'active' ? (
+                            <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider">Aktif</span>
+                          ) : (
+                            <span className="bg-neutral-100 text-neutral-500 px-2 py-0.5 rounded font-bold text-[10px] uppercase tracking-wider">Selesai</span>
+                          )
+                        },
+                        {
+                          key: 'action',
+                          label: 'Aksi',
+                          filterable: false,
+                          render: (batch) => (
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => {
+                                setEditingBatch(batch);
+                                setBatchFormData({ name: batch.name, date_range: batch.date_range, status: batch.status });
+                                setShowBatchModal(true);
+                              }} className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors">
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => handleDeleteBatch(batch.id)} className="p-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )
+                        }
+                      ]}
+                    />
                   </div>
                 </div>
 
@@ -1472,88 +1555,83 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                     </button>
                   </div>
                   
-                  <div className="overflow-hidden border border-neutral-100 rounded-2xl">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-neutral-50 text-neutral-600 border-b border-neutral-100">
-                        <tr>
-                          <th className="p-4 font-semibold">Nama Startup</th>
-                          <th className="p-4 font-semibold">Deskripsi</th>
-                          <th className="p-4 font-semibold w-24 text-center">Aksi</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-100">
-                        {paginationStartups.currentData.map(startup => (
-                          <tr key={startup.id} className="hover:bg-neutral-50/50 transition-colors">
+                  <DataTable
+                    title=""
+                    data={startups}
+                    emptyMessage="Belum ada data startup."
+                    columns={[
+                      {
+                        key: 'name',
+                        label: 'Nama Startup',
+                        filterable: true,
+                        render: (startup) => editingStartupId === startup.id ? (
+                          <input type="text" value={editStartupName} onChange={e => setEditStartupName(e.target.value)} className="w-full border border-neutral-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none" />
+                        ) : <span className="font-bold text-neutral-800">{startup.name}</span>
+                      },
+                      {
+                        key: 'description',
+                        label: 'Deskripsi',
+                        filterable: true,
+                        render: (startup) => editingStartupId === startup.id ? (
+                          <input type="text" value={editStartupDesc} onChange={e => setEditStartupDesc(e.target.value)} className="w-full border border-neutral-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none" />
+                        ) : <span className="text-neutral-500 truncate max-w-xs block">{startup.description}</span>
+                      },
+                      {
+                        key: 'action',
+                        label: 'Aksi',
+                        filterable: false,
+                        render: (startup) => (
+                          <div className="flex items-center justify-center gap-2">
                             {editingStartupId === startup.id ? (
                               <>
-                                <td className="p-3">
-                                  <input type="text" value={editStartupName} onChange={e => setEditStartupName(e.target.value)} className="w-full border border-neutral-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none" />
-                                </td>
-                                <td className="p-3">
-                                  <input type="text" value={editStartupDesc} onChange={e => setEditStartupDesc(e.target.value)} className="w-full border border-neutral-200 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-400 outline-none" />
-                                </td>
-                                <td className="p-3">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button onClick={() => {
-                                      updateStartup(startup.id, { name: editStartupName, description: editStartupDesc });
-                                      setEditingStartupId(null);
-                                      import('sweetalert2').then(Swal => Swal.default.fire('Berhasil', 'Startup diperbarui', 'success'));
-                                    }} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg"><Save className="w-4 h-4"/></button>
-                                    <button onClick={() => setEditingStartupId(null)} className="p-2 bg-neutral-100 text-neutral-500 hover:bg-neutral-200 rounded-lg"><X className="w-4 h-4"/></button>
-                                  </div>
-                                </td>
+                                <button onClick={() => {
+                                  updateStartup(startup.id, { name: editStartupName, description: editStartupDesc });
+                                  setEditingStartupId(null);
+                                  import('sweetalert2').then(Swal => Swal.default.fire('Berhasil', 'Startup diperbarui', 'success'));
+                                }} className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-lg"><Save className="w-4 h-4"/></button>
+                                <button onClick={() => setEditingStartupId(null)} className="p-2 bg-neutral-100 text-neutral-500 hover:bg-neutral-200 rounded-lg"><X className="w-4 h-4"/></button>
                               </>
                             ) : (
                               <>
-                                <td className="p-4 font-bold text-neutral-800">{startup.name}</td>
-                                <td className="p-4 text-neutral-500 truncate max-w-xs">{startup.description}</td>
-                                <td className="p-4">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button 
-                                      onClick={() => {
-                                        setEditingStartupId(startup.id);
-                                        setEditStartupName(startup.name);
-                                        setEditStartupDesc(startup.description);
-                                      }}
-                                      className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                    >
-                                      <Edit2 className="w-4 h-4" />
-                                    </button>
-                                    <button 
-                                      onClick={() => {
-                                        import('sweetalert2').then(Swal => {
-                                          Swal.default.fire({
-                                            title: 'Hapus Startup?',
-                                            text: 'Tindakan ini tidak dapat dibatalkan.',
-                                            icon: 'warning',
-                                            showCancelButton: true,
-                                            confirmButtonText: 'Ya, Hapus',
-                                            cancelButtonText: 'Batal'
-                                          }).then((result) => {
-                                            if (result.isConfirmed) {
-                                              deleteStartup(startup.id);
-                                              Swal.default.fire('Terhapus!', 'Startup berhasil dihapus.', 'success');
-                                            }
-                                          });
-                                        });
-                                      }}
-                                      className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                </td>
+                                <button 
+                                  onClick={() => {
+                                    setEditingStartupId(startup.id);
+                                    setEditStartupName(startup.name);
+                                    setEditStartupDesc(startup.description);
+                                  }}
+                                  className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  onClick={() => {
+                                    import('sweetalert2').then(Swal => {
+                                      Swal.default.fire({
+                                        title: 'Hapus Startup?',
+                                        text: 'Tindakan ini tidak dapat dibatalkan.',
+                                        icon: 'warning',
+                                        showCancelButton: true,
+                                        confirmButtonText: 'Ya, Hapus',
+                                        cancelButtonText: 'Batal'
+                                      }).then((result) => {
+                                        if (result.isConfirmed) {
+                                          deleteStartup(startup.id);
+                                          Swal.default.fire('Terhapus!', 'Startup berhasil dihapus.', 'success');
+                                        }
+                                      });
+                                    });
+                                  }}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
                               </>
                             )}
-                          </tr>
-                        ))}
-                        {startups.length === 0 && (
-                          <tr><td colSpan={3} className="p-8 text-center text-neutral-500">Belum ada data startup.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <Pagination {...paginationStartups} />
+                          </div>
+                        )
+                      }
+                    ]}
+                  />
                 </div>
               </div>
             </motion.div>

@@ -7,6 +7,7 @@ import { getGrade } from '../utils';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Cell, PieChart, Pie, BarChart, Bar } from 'recharts';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
+import { DataTable } from './DataTable';
 import Swal from 'sweetalert2';
 
 export default function InternDashboard({ activeTab = 'dashboard', setActiveTab }: { activeTab?: string, setActiveTab?: (tab: any) => void }) {
@@ -17,6 +18,17 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
   const [incidentDesc, setIncidentDesc] = useState('');
   const [incidentDate, setIncidentDate] = useState(new Date().toISOString().split('T')[0]);
   const [incidentAttachment, setIncidentAttachment] = useState<File | null>(null);
+  const [incidentPreviewUrl, setIncidentPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (incidentAttachment && incidentAttachment.type.startsWith('image/')) {
+      const url = URL.createObjectURL(incidentAttachment);
+      setIncidentPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setIncidentPreviewUrl(null);
+    }
+  }, [incidentAttachment]);
 
   // Profile States
   const [profileName, setProfileName] = useState(currentUser?.name || '');
@@ -195,12 +207,67 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
       status: rpt.type === 'good' ? 'Positif' : 'Negatif',
       evaluatorId: rpt.reporterId,
       impact: rpt.pointsImpact,
-      targetType: rpt.targetType
+      targetType: rpt.targetType,
+      photoUrl: rpt.photoUrl
     })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [myReports]);
 
-  const paginationActivities = usePagination(activityHistory, 10);
-  const paginationReports = usePagination(reportHistory, 10);
+  const activityColumns = [
+    { key: 'dateStr', label: 'Tanggal', filterable: true, render: (row: any) => new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) },
+    { key: 'category', label: 'Kategori', filterable: true, render: (row: any) => <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200">{row.category}</span> },
+    { key: 'description', label: 'Keterangan', filterable: true, render: (row: any) => <div className="whitespace-pre-wrap">{row.description}</div> },
+    { key: 'photoUrl', label: 'Bukti Foto', filterable: false, render: (row: any) => row.photoUrl ? (
+      <div 
+        className="inline-block rounded-xl overflow-hidden border border-neutral-200 shadow-sm cursor-pointer" 
+        onClick={() => {
+          import('sweetalert2').then(Swal => {
+            Swal.default.fire({
+              imageUrl: row.photoUrl,
+              imageAlt: 'Bukti Foto',
+              showConfirmButton: false,
+              showCloseButton: true,
+              customClass: { popup: 'rounded-3xl' }
+            });
+          });
+        }}
+      >
+        <img src={row.photoUrl} alt="Bukti Foto" className="w-16 h-16 object-cover hover:scale-110 transition-transform" />
+      </div>
+    ) : <span className="text-neutral-400 italic text-xs">Tidak ada lampiran</span> },
+    { key: 'status', label: 'Status', filterable: true, render: (row: any) => <span className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getStatusBadge(row.status)}`}>{row.status}</span> }
+  ];
+
+  const reportColumns = [
+    { key: 'dateStr', label: 'Tanggal', filterable: true, render: (row: any) => new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) },
+    { key: 'description', label: 'Alasan', filterable: true, render: (row: any) => (
+      <div>
+        {row.targetType === 'startup' && (
+          <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-fuchsia-100 text-fuchsia-700 uppercase tracking-wider mb-2">Penilaian Tim (Startup)</span>
+        )}
+        <div className="whitespace-pre-wrap">{row.description}</div>
+      </div>
+    )},
+    { key: 'evaluatorStr', label: 'Evaluator', filterable: true, render: (row: any) => {
+      let evaluatorStr = '-';
+      if (row.evaluatorId) {
+        const rep = users.find(u => u.id === row.evaluatorId);
+        if (rep) evaluatorStr = `${rep.name} (${rep.role === 'academic' ? 'PA' : 'HR'})`;
+      }
+      return evaluatorStr;
+    }},
+    { key: 'score', label: 'Skor', filterable: true, render: (row: any) => (
+      <div className="flex flex-col items-center gap-1">
+        <span className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getStatusBadge(row.status)}`}>
+          {row.status}
+        </span>
+        {row.impact && (
+          <span className={`text-xs font-bold ${row.impact > 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {row.impact > 0 ? '+' : ''}{row.impact} Poin
+          </span>
+        )}
+      </div>
+    )}
+  ];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -443,14 +510,14 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-neutral-700 mb-2">Bukti Lampiran</label>
-                    {incidentAttachment && incidentAttachment.type.startsWith('image/') ? (
+                    {incidentPreviewUrl ? (
                       <div className="relative w-full border-2 border-dashed border-[#EAB308] rounded-2xl p-4 flex flex-col items-center justify-center bg-yellow-50/30">
                         <img
-                          src={URL.createObjectURL(incidentAttachment)}
+                          src={incidentPreviewUrl}
                           alt="Preview"
                           className="max-h-48 rounded-xl object-contain mb-3"
                         />
-                        <span className="text-sm font-bold text-neutral-700">{incidentAttachment.name}</span>
+                        <span className="text-sm font-bold text-neutral-700">{incidentAttachment?.name}</span>
                         <button
                           type="button"
                           onClick={() => setIncidentAttachment(null)}
@@ -494,140 +561,12 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
         {activeTab === 'reports' && (
           <motion.div key="reports" initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}} className="space-y-8">
             <div className="bg-white p-8 rounded-3xl border border-neutral-100 shadow-xl shadow-neutral-200/40">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <h2 className="text-2xl font-bold text-neutral-800 flex items-center gap-3">
-                  <FileText className="w-6 h-6 text-[#EAB308]" /> Riwayat Laporan Kejadian
-                </h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-neutral-100">
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Tanggal</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Kategori</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Keterangan</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Bukti Foto</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider text-center">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {paginationActivities.currentData.map((item, idx) => (
-                      <tr key={item.id + idx} className="hover:bg-neutral-50/50 transition-colors">
-                        <td className="py-4 px-4 text-sm font-bold text-neutral-800 whitespace-nowrap align-top">
-                          {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="py-4 px-4 align-top">
-                          <span className="text-xs font-bold px-2.5 py-1 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200">
-                            {item.category}
-                          </span>
-                        </td>
-                        <td className="py-4 px-4 text-sm text-neutral-600 font-medium min-w-[200px] align-top">
-                          <div className="whitespace-pre-wrap">{item.description}</div>
-                        </td>
-                        <td className="py-4 px-4 align-top">
-                          {item.attachment_url ? (
-                            <div 
-                              className="inline-block rounded-xl overflow-hidden border border-neutral-200 shadow-sm cursor-pointer" 
-                              onClick={() => {
-                                import('sweetalert2').then(Swal => {
-                                  Swal.default.fire({
-                                    imageUrl: item.attachment_url,
-                                    imageAlt: 'Lampiran Bukti',
-                                    showConfirmButton: false,
-                                    showCloseButton: true,
-                                    width: 'auto',
-                                    customClass: { image: 'max-h-[80vh] object-contain rounded-xl' }
-                                  });
-                                });
-                              }}
-                            >
-                              <img src={item.attachment_url} alt="Lampiran Bukti" className="h-20 w-32 object-cover hover:opacity-80 transition-opacity" />
-                            </div>
-                          ) : (
-                            <span className="text-xs text-neutral-400 italic">Tidak ada bukti</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-4 text-center align-top">
-                          <span className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getStatusBadge(item.status)}`}>
-                            {item.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                    {paginationActivities.currentData.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="py-12 text-center text-neutral-500 font-medium">Data laporan kejadian tidak ditemukan.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination {...paginationActivities} />
-            </div>
-
-            <div className="bg-white p-8 rounded-3xl border border-neutral-100 shadow-xl shadow-neutral-200/40">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                <h2 className="text-2xl font-bold text-neutral-800 flex items-center gap-3">
-                  <Star className="w-6 h-6 text-[#EAB308]" /> Riwayat Penilaian Score Credit
-                </h2>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b-2 border-neutral-100">
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Tanggal</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider">Alasan</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider text-center">Evaluator</th>
-                      <th className="py-4 px-4 text-sm font-bold text-neutral-500 uppercase tracking-wider text-center">Skor</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-100">
-                    {paginationReports.currentData.map((item, idx) => {
-                      let evaluatorStr = '-';
-                      if (item.evaluatorId) {
-                        const rep = users.find(u => u.id === item.evaluatorId);
-                        if (rep) {
-                          evaluatorStr = `${rep.name} (${rep.role === 'academic' ? 'PA' : 'HR'})`;
-                        }
-                      }
-                      return (
-                      <tr key={item.id + idx} className="hover:bg-neutral-50/50 transition-colors">
-                        <td className="py-4 px-4 text-sm font-bold text-neutral-800 whitespace-nowrap align-top">
-                          {new Date(item.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td className="py-4 px-4 text-sm text-neutral-600 font-medium whitespace-pre-wrap min-w-[250px] align-top">
-                          {item.targetType === 'startup' && (
-                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-fuchsia-100 text-fuchsia-700 uppercase tracking-wider mb-2">Penilaian Tim (Startup)</span>
-                          )}
-                          <div className="whitespace-pre-wrap">{item.description}</div>
-                        </td>
-                        <td className="py-4 px-4 text-sm text-neutral-600 text-center align-top whitespace-nowrap">
-                          {evaluatorStr}
-                        </td>
-                        <td className="py-4 px-4 text-center align-top">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getStatusBadge(item.status)}`}>
-                              {item.status}
-                            </span>
-                            {item.impact && (
-                              <span className={`text-xs font-bold ${item.impact > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {item.impact > 0 ? '+' : ''}{item.impact} Poin
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      )
-                    })}
-                    {paginationReports.currentData.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="py-12 text-center text-neutral-500 font-medium">Data penilaian tidak ditemukan.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pagination {...paginationReports} />
+              <DataTable
+                title="Riwayat Laporan & Penilaian"
+                data={reportHistory}
+                columns={activityColumns}
+                emptyMessage="Data penilaian tidak ditemukan."
+              />
             </div>
           </motion.div>
         )}
