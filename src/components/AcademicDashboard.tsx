@@ -46,7 +46,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
   // Score Management States
   const [chartFilter, setChartFilter] = useState<'hari' | 'bulan' | 'tahun'>('bulan');
   const [targetType, setTargetType] = useState<'intern' | 'startup'>('intern');
-  const [selectedTargetId, setSelectedTargetId] = useState<string>('');
+  const [selectedTargetIds, setSelectedTargetIds] = useState<string[]>([]);
   const [showRubricScoreModal, setShowRubricScoreModal] = useState(false);
   const [rubricTargetUser, setRubricTargetUser] = useState<any>(null);
   const [rubricValues, setRubricValues] = useState<Record<string, number>>({});
@@ -128,9 +128,13 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
 
   const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedTargetId || !currentUser) return;
-    
     const Swal = (await import('sweetalert2')).default;
+    if (selectedTargetIds.length === 0) {
+      Swal.fire('Gagal', 'Silakan pilih peserta magang atau startup dari daftar terlebih dahulu!', 'error');
+      return;
+    }
+    if (!currentUser) return;
+    
     Swal.fire({
       title: 'Memproses...',
       text: 'Menyimpan penilaian',
@@ -141,8 +145,8 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
     });
 
     try {
-      await addReport({
-        targetId: selectedTargetId,
+      const promises = selectedTargetIds.map(targetId => addReport({
+        targetId: targetId,
         targetType: targetType,
         reporterId: currentUser.id,
         date: new Date(reportDate).toISOString(),
@@ -151,7 +155,8 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
         photoUrl,
         aspectId: selectedAspectId || undefined,
         pointsImpact: reportType === 'good' ? Math.abs(pointsImpact) : -Math.abs(pointsImpact),
-      });
+      }));
+      await Promise.all(promises);
       
       setDescription('');
       setPhotoUrl('');
@@ -263,7 +268,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
       <div className="flex items-center gap-2">
         <button onClick={() => setSelectedInternDetail(row)} className="p-1.5 text-neutral-400 hover:text-[#EAB308] hover:bg-[#EAB308]/10 rounded-lg transition-colors" title="Lihat Detail"><Eye className="w-4 h-4" /></button>
         <button onClick={() => {
-          setSelectedTargetId(row.id);
+          setSelectedTargetIds([row.id]);
           setTargetType('intern');
           if (setActiveTab) setActiveTab('scores');
         }} className="p-1.5 text-neutral-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Beri Penilaian"><Star className="w-4 h-4" /></button>
@@ -450,14 +455,14 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                 <div className="flex p-1.5 bg-neutral-100 rounded-2xl mb-6">
                   <button 
                     type="button" 
-                    onClick={() => setTargetType('intern')}
+                    onClick={() => { setTargetType('intern'); setSelectedTargetIds([]); }}
                     className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${targetType === 'intern' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}
                   >
                     Peserta Magang
                   </button>
                   <button 
                     type="button" 
-                    onClick={() => setTargetType('startup')}
+                    onClick={() => { setTargetType('startup'); setSelectedTargetIds([]); }}
                     className={`flex-1 py-3 text-sm font-bold rounded-xl transition-all ${targetType === 'startup' ? 'bg-white text-black shadow-sm' : 'text-neutral-500 hover:text-black'}`}
                   >
                     Tim Startup
@@ -479,6 +484,18 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                 {targetType === 'intern' ? (
                   <div className="relative mb-6">
                     <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">Pilih Peserta</label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {selectedTargetIds.map(id => {
+                        const intern = interns.find(i => i.id === id);
+                        if (!intern) return null;
+                        return (
+                          <span key={id} className="bg-yellow-100 text-yellow-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm border border-yellow-200">
+                            {intern.name}
+                            <button type="button" onClick={() => setSelectedTargetIds(prev => prev.filter(p => p !== id))} className="text-yellow-600 hover:text-yellow-900 bg-yellow-200/50 hover:bg-yellow-200 rounded-full p-0.5"><X className="w-3.5 h-3.5" /></button>
+                          </span>
+                        );
+                      })}
+                    </div>
                     <input
                       type="text"
                       placeholder="Cari Peserta Magang..."
@@ -487,7 +504,6 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                       onBlur={() => setTimeout(() => setShowInternDropdown(false), 200)}
                       onChange={(e) => {
                          setInternSearch(e.target.value);
-                         setSelectedTargetId('');
                          setShowInternDropdown(true);
                       }}
                       className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium transition-all"
@@ -501,8 +517,10 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                             className="w-full text-left px-4 py-3 hover:bg-neutral-50 focus:bg-neutral-50 focus:outline-none"
                             onMouseDown={(e) => {
                               e.preventDefault();
-                              setSelectedTargetId(i.id);
-                              setInternSearch(i.name);
+                              if (!selectedTargetIds.includes(i.id)) {
+                                setSelectedTargetIds(prev => [...prev, i.id]);
+                              }
+                              setInternSearch('');
                               setShowInternDropdown(false);
                             }}
                           >
@@ -515,21 +533,6 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                         )}
                       </div>
                     )}
-                    
-                    {selectedTargetId && (
-                      <div className="mt-4 p-5 bg-yellow-50/50 border border-[#EAB308]/20 rounded-2xl flex items-center justify-between">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1">Skor Saat Ini</span>
-                          <span className="text-sm font-bold text-neutral-800 flex items-center gap-2">
-                            <UserIcon className="w-4 h-4 text-neutral-400" />
-                            {interns.find(i => i.id === selectedTargetId)?.name}
-                          </span>
-                        </div>
-                        <span className="text-3xl font-black text-[#EAB308]">
-                          {interns.find(i => i.id === selectedTargetId)?.score || 0}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div className="mb-6">
@@ -537,12 +540,12 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                       Pilih Startup
                     </label>
                     <select 
-                      required
-                      value={selectedTargetId}
-                      onChange={(e) => setSelectedTargetId(e.target.value)}
+                      required={selectedTargetIds.length === 0}
+                      value={selectedTargetIds[0] || ''}
+                      onChange={(e) => setSelectedTargetIds([e.target.value])}
                       className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium appearance-none cursor-pointer transition-all"
                     >
-                      <option value="">-- Pilih --</option>
+                      <option value="" disabled>-- Pilih --</option>
                       {mentoredStartups.map(s => <option key={s.id || s.name} value={s.name}>{s.name}</option>)}
                     </select>
                   </div>

@@ -62,7 +62,7 @@ async function seed() {
 
   // 3. Seed users
   console.log('👤 Seeding users...');
-  
+
   const fieldPassword = await hashPassword('kolabcreativehub');
   const academicPassword = await hashPassword('dosenakademik@26');
   const internPassword = await hashPassword('pesertamagang@26');
@@ -130,7 +130,7 @@ async function seed() {
   const { error: usersError } = await supabase
     .from('users')
     .upsert(users, { onConflict: 'id' });
-  
+
   if (usersError) {
     console.error('❌ Users seed error:', usersError);
     return;
