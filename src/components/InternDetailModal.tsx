@@ -2,7 +2,10 @@ import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
 import { X, User as UserIcon, CheckCircle, Info, Clock, AlertCircle, Camera, MapPin } from 'lucide-react';
 import { User, ActivityLog, BehaviorReport } from '../types';
-import { getGrade } from '../utils';
+import { getGrade, aspectLabel } from '../utils';
+import { useAppContext } from '../store';
+import { AspectBadge, ScoreBadge } from './ScorePrediction';
+import { PresenceHistory } from './PresenceHistory';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
 
@@ -16,6 +19,7 @@ interface Props {
 
 export default function InternDetailModal(props: Props) { 
   const { intern, onClose, activities, reports, users } = props;
+  const { rubricAspects } = useAppContext();
   const [selectedPhoto, setSelectedPhoto] = React.useState<any>(null);
   const myActivities = activities.filter(a => a.internId === intern.id);
   const myReports = reports.filter(r => 
@@ -32,6 +36,7 @@ export default function InternDetailModal(props: Props) {
       status: 'Disetujui',
       evaluatorId: null,
       impact: null,
+      aspect: undefined as string | null | undefined,
       isStartup: false
     }));
     const rpts = myReports.map(rpt => ({
@@ -42,10 +47,11 @@ export default function InternDetailModal(props: Props) {
       status: rpt.type === 'good' ? 'Positif' : 'Negatif',
       evaluatorId: rpt.reporterId,
       impact: rpt.pointsImpact,
+      aspect: aspectLabel(rpt.aspectId, rubricAspects),
       isStartup: rpt.targetType === 'startup'
     }));
     return [...logs, ...rpts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [myActivities, myReports]);
+  }, [myActivities, myReports, rubricAspects]);
 
   const paginationHistory = usePagination(combinedHistory, 10);
 
@@ -106,8 +112,7 @@ export default function InternDetailModal(props: Props) {
              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-100 text-center">
                 <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1">Skor Saat Ini</p>
                 <div className="flex items-center justify-center gap-2">
-                   <p className="text-3xl font-black text-neutral-800">{intern.score}</p>
-                   <p className="text-lg font-bold text-[#EAB308]">({getGrade(intern.score)})</p>
+                   <ScoreBadge score={intern.score} size="lg" />
                 </div>
              </div>
              <div className="bg-neutral-50 p-4 rounded-2xl border border-neutral-100 text-center flex flex-col justify-center">
@@ -120,6 +125,8 @@ export default function InternDetailModal(props: Props) {
              </div>
           </div>
           
+          <PresenceHistory history={intern.presenceStats} />
+
           {/* Riwayat Aktivitas Mini Table */}
           <div>
             <h4 className="font-bold text-neutral-700 mb-3">Aktivitas & Penilaian Terbaru</h4>
@@ -153,6 +160,7 @@ export default function InternDetailModal(props: Props) {
                              {item.description}
                              {item.isStartup && <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-100 text-yellow-700 border border-yellow-200">Startup</span>}
                            </p>
+                           {item.aspect !== undefined && <div className="mb-1"><AspectBadge label={item.aspect} /></div>}
                            {evaluatorStr ? (
                              <p className="text-[10px] text-neutral-500 font-medium italic">{evaluatorStr}</p>
                            ) : (

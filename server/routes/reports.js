@@ -1,10 +1,62 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
+// Samakan dengan DEFAULT_MAX_POINTS di src/utils.ts
+export const DEFAULT_MAX_POINTS = 20;
+
 router.use(authMiddleware);
+
+const toCamel = (r) => ({
+  id: r.id,
+  targetId: r.target_id,
+  targetType: r.target_type,
+  reporterId: r.reporter_id,
+  date: r.date,
+  type: r.type,
+  description: r.description,
+  photoUrl: r.photo_url,
+  pointsImpact: r.points_impact,
+  aspectId: r.aspect_id,
+});
+
+// Tambah (sign = 1) atau kembalikan (sign = -1) poin report ke score & rubric_scores user target.
+// ponytail: read-modify-write tanpa transaksi; pindah ke RPC Postgres kalau ada penilaian paralel.
+async function applyReportPoints(report, sign) {
+  const points = (report.points_impact || 0) * sign;
+
+  let users = [];
+  if (report.target_type === 'startup') {
+    const { data } = await supabase
+      .from('users')
+      .select('id, score, rubric_scores')
+      .eq('startup', report.target_id);
+    users = data || [];
+  } else {
+    const { data } = await supabase
+      .from('users')
+      .select('id, score, rubric_scores')
+      .eq('id', report.target_id)
+      .single();
+    if (data) users = [data];
+  }
+
+  for (const user of users) {
+    const updateData = { score: (user.score || 0) + points };
+    if (report.aspect_id) {
+      const currentRubrics = user.rubric_scores || {};
+      updateData.rubric_scores = {
+        ...currentRubrics,
+        [report.aspect_id]: (currentRubrics[report.aspect_id] || 0) + points,
+      };
+    }
+    const { error } = await supabase.from('users').update(updateData).eq('id', user.id);
+    if (error) console.error('Apply report points error:', error);
+  }
+}
 
 // GET /api/reports — List behavior reports
 router.get('/', async (req, res) => {
@@ -26,21 +78,16 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: 'Gagal mengambil data reports.' });
     }
 
-    // Convert snake_case to camelCase for frontend compatibility
-    const reports = data.map(r => ({
-      id: r.id,
-      targetId: r.target_id,
-      targetType: r.target_type,
-      reporterId: r.reporter_id,
-      date: r.date,
-      type: r.type,
-      description: r.description,
-      photoUrl: r.photo_url,
-      pointsImpact: r.points_impact,
-      aspectId: r.aspect_id,
-    }));
+    let reports = data;
+    // Intern hanya melihat laporan tentang dirinya atau startup-nya
+    if (req.user.role === 'intern') {
+      reports = reports.filter(r =>
+        (r.target_type !== 'startup' && r.target_id === req.user.id) ||
+        (r.target_type === 'startup' && req.user.startup && r.target_id === req.user.startup)
+      );
+    }
 
-    res.json(reports);
+    res.json(reports.map(toCamel));
   } catch (err) {
     console.error('Get reports error:', err);
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
@@ -48,26 +95,49 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/reports — Add behavior report + auto-update score
-router.post('/', async (req, res) => {
+router.post('/', requireRole('field', 'academic'), async (req, res) => {
   try {
-    const { targetId, targetType, reporterId, date, type, description, photoUrl, pointsImpact, aspectId } = req.body;
+    const { targetId, targetType, date, type, description, photoUrl, pointsImpact, aspectId } = req.body;
 
-    if (!targetId || !reporterId || !date || !type || !description) {
+    if (!targetId || !date || !type || !description) {
       return res.status(400).json({ error: 'Data report tidak lengkap.' });
     }
+    if (!['good', 'bad'].includes(type)) {
+      return res.status(400).json({ error: 'Tipe report tidak valid.' });
+    }
+    if (targetType !== undefined && !['intern', 'startup'].includes(targetType)) {
+      return res.status(400).json({ error: 'Target report tidak valid.' });
+    }
+    if (pointsImpact !== undefined && !Number.isFinite(Number(pointsImpact))) {
+      return res.status(400).json({ error: 'Poin harus berupa angka.' });
+    }
 
-    const id = `r${Date.now()}`;
+    // Batas poin per laporan: max_points milik aspek, atau DEFAULT_MAX_POINTS
+    let maxPoints = DEFAULT_MAX_POINTS;
+    let aspectName = 'laporan tanpa aspek';
+    if (aspectId) {
+      const { data: aspect } = await supabase.from('rubric_aspects').select('*').eq('id', aspectId).single();
+      if (!aspect) {
+        return res.status(400).json({ error: 'Aspek penilaian tidak ditemukan.' });
+      }
+      maxPoints = aspect.max_points || DEFAULT_MAX_POINTS;
+      aspectName = `aspek "${aspect.name}"`;
+    }
+    if (Math.abs(Number(pointsImpact) || 0) > maxPoints) {
+      return res.status(400).json({ error: `Poin maksimal untuk ${aspectName} adalah ±${maxPoints}.` });
+    }
 
     const newReport = {
-      id,
+      id: randomUUID(),
       target_id: targetId,
       target_type: targetType || 'intern',
-      reporter_id: reporterId,
+      // Pelapor selalu user yang login, bukan dari body
+      reporter_id: req.user.id,
       date,
       type,
       description,
       photo_url: photoUrl || null,
-      points_impact: pointsImpact || 0,
+      points_impact: Number(pointsImpact) || 0,
       aspect_id: aspectId || null,
     };
 
@@ -82,79 +152,9 @@ router.post('/', async (req, res) => {
       return res.status(500).json({ error: 'Gagal menambahkan report.' });
     }
 
-    const { data: aspects } = await supabase.from('rubric_aspects').select('*');
-    const aspectWeights = {};
-    if (aspects) {
-      aspects.forEach(a => aspectWeights[a.id] = a.weight);
-    }
+    await applyReportPoints(report, 1);
 
-    // Auto-update user score if target is an intern
-    if (newReport.target_type === 'intern' || !newReport.target_type) {
-      // Get current user score and rubric_scores
-      const { data: user } = await supabase
-        .from('users')
-        .select('score, rubric_scores')
-        .eq('id', targetId)
-        .single();
-
-      if (user) {
-        let updateData = {};
-        let currentScore = user.score || 0;
-
-        if (aspectId) {
-          const currentRubrics = user.rubric_scores || {};
-          const aspectScore = (currentRubrics[aspectId] || 0) + (pointsImpact || 0);
-          updateData.rubric_scores = { ...currentRubrics, [aspectId]: aspectScore };
-        }
-
-        updateData.score = currentScore + (pointsImpact || 0);
-
-        await supabase
-          .from('users')
-          .update(updateData)
-          .eq('id', targetId);
-      }
-    } else if (newReport.target_type === 'startup') {
-      // Get all interns in this startup
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, score, rubric_scores')
-        .eq('startup', targetId);
-
-      if (users && users.length > 0) {
-        for (const user of users) {
-          let updateData = {};
-          let currentScore = user.score || 0;
-
-          if (aspectId) {
-            const currentRubrics = user.rubric_scores || {};
-            const aspectScore = (currentRubrics[aspectId] || 0) + (pointsImpact || 0);
-            updateData.rubric_scores = { ...currentRubrics, [aspectId]: aspectScore };
-          }
-
-          updateData.score = currentScore + (pointsImpact || 0);
-
-          await supabase
-            .from('users')
-            .update(updateData)
-            .eq('id', user.id);
-        }
-      }
-    }
-
-    // Return in camelCase
-    res.status(201).json({
-      id: report.id,
-      targetId: report.target_id,
-      targetType: report.target_type,
-      reporterId: report.reporter_id,
-      date: report.date,
-      type: report.type,
-      description: report.description,
-      photoUrl: report.photo_url,
-      pointsImpact: report.points_impact,
-      aspectId: report.aspect_id,
-    });
+    res.status(201).json(toCamel(report));
   } catch (err) {
     console.error('Add report error:', err);
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
@@ -162,10 +162,10 @@ router.post('/', async (req, res) => {
 });
 
 // DELETE /api/reports/:id — Delete report and revert scores
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('field', 'academic'), async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Get report first to know points impact
     const { data: report, error: getError } = await supabase
       .from('behavior_reports')
@@ -175,6 +175,11 @@ router.delete('/:id', async (req, res) => {
 
     if (getError || !report) {
       return res.status(404).json({ error: 'Laporan tidak ditemukan.' });
+    }
+
+    // Pembimbing akademik hanya boleh menghapus laporan miliknya sendiri
+    if (req.user.role === 'academic' && report.reporter_id !== req.user.id) {
+      return res.status(403).json({ error: 'Anda hanya dapat menghapus laporan yang Anda buat.' });
     }
 
     // Delete the report
@@ -187,59 +192,7 @@ router.delete('/:id', async (req, res) => {
       return res.status(500).json({ error: 'Gagal menghapus laporan.' });
     }
 
-    const { data: aspects } = await supabase.from('rubric_aspects').select('*');
-    const aspectWeights = {};
-    if (aspects) {
-      aspects.forEach(a => aspectWeights[a.id] = a.weight);
-    }
-
-    const pointsImpact = report.points_impact || 0;
-
-    // Revert user score if target is an intern
-    if (report.target_type === 'intern' || !report.target_type) {
-      const { data: user } = await supabase
-        .from('users')
-        .select('score, rubric_scores')
-        .eq('id', report.target_id)
-        .single();
-
-      if (user) {
-        let updateData = {};
-        let currentScore = user.score || 0;
-
-        if (report.aspect_id) {
-          const currentRubrics = user.rubric_scores || {};
-          const aspectScore = (currentRubrics[report.aspect_id] || 0) - pointsImpact;
-          updateData.rubric_scores = { ...currentRubrics, [report.aspect_id]: aspectScore };
-        }
-        
-        updateData.score = currentScore - pointsImpact;
-
-        await supabase.from('users').update(updateData).eq('id', report.target_id);
-      }
-    } else if (report.target_type === 'startup') {
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, score, rubric_scores')
-        .eq('startup', report.target_id);
-
-      if (users && users.length > 0) {
-        for (const user of users) {
-          let updateData = {};
-          let currentScore = user.score || 0;
-
-          if (report.aspect_id) {
-            const currentRubrics = user.rubric_scores || {};
-            const aspectScore = (currentRubrics[report.aspect_id] || 0) - pointsImpact;
-            updateData.rubric_scores = { ...currentRubrics, [report.aspect_id]: aspectScore };
-          }
-          
-          updateData.score = currentScore - pointsImpact;
-
-          await supabase.from('users').update(updateData).eq('id', user.id);
-        }
-      }
-    }
+    await applyReportPoints(report, -1);
 
     res.json({ message: 'Laporan berhasil dihapus dan skor disesuaikan.' });
   } catch (err) {

@@ -1,16 +1,26 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
-import { v4 as uuidv4 } from 'uuid';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Get all activities
+router.use(authMiddleware);
+
+const TYPES = ['harian', 'kejadian'];
+const STATUSES = ['pending', 'approved', 'rejected'];
+
+// Get all activities (intern hanya miliknya sendiri)
 router.get('/', async (req, res) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('intern_activities')
       .select('*')
       .order('created_at', { ascending: false });
+
+    if (req.user.role === 'intern') query = query.eq('intern_id', req.user.id);
+
+    const { data, error } = await query;
 
     if (error) throw error;
     res.json(data);
@@ -24,18 +34,31 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { intern_id, date, type, title, description, obstacle, attachment_url, status } = req.body;
+    const isIntern = req.user.role === 'intern';
+
+    if (!date || !type || !title || !description) {
+      return res.status(400).json({ error: 'Tanggal, tipe, judul, dan deskripsi wajib diisi.' });
+    }
+    if (!TYPES.includes(type)) {
+      return res.status(400).json({ error: 'Tipe aktivitas tidak valid.' });
+    }
 
     const newActivity = {
-      id: uuidv4(),
-      intern_id,
+      id: randomUUID(),
+      // Intern selalu membuat laporan atas nama dirinya sendiri dan berstatus pending
+      intern_id: isIntern ? req.user.id : intern_id,
       date,
       type,
       title,
       description,
       obstacle: obstacle || null,
       attachment_url: attachment_url || null,
-      status: status || 'pending'
+      status: isIntern ? 'pending' : (STATUSES.includes(status) ? status : 'pending'),
     };
+
+    if (!newActivity.intern_id) {
+      return res.status(400).json({ error: 'intern_id wajib diisi.' });
+    }
 
     const { data, error } = await supabase
       .from('intern_activities')
@@ -52,10 +75,14 @@ router.post('/', async (req, res) => {
 });
 
 // Update activity status (for HR/Academic approval)
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireRole('field', 'academic'), async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+
+    if (!STATUSES.includes(status)) {
+      return res.status(400).json({ error: 'Status tidak valid.' });
+    }
 
     const { data, error } = await supabase
       .from('intern_activities')
@@ -72,10 +99,26 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
-// Delete activity
+// Delete activity (HR, atau intern pemiliknya selama masih pending)
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (req.user.role !== 'field') {
+      const { data: activity } = await supabase
+        .from('intern_activities')
+        .select('intern_id, status')
+        .eq('id', id)
+        .single();
+
+      if (!activity) {
+        return res.status(404).json({ error: 'Aktivitas tidak ditemukan' });
+      }
+      if (activity.intern_id !== req.user.id || activity.status !== 'pending') {
+        return res.status(403).json({ error: 'Anda tidak memiliki akses untuk operasi ini.' });
+      }
+    }
+
     const { error } = await supabase
       .from('intern_activities')
       .delete()

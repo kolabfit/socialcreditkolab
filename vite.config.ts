@@ -2,9 +2,11 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({mode}) => {
+  // Port backend Express dari .env (PORT), sama dengan server/index.js
+  const apiPort = loadEnv(mode, '.', '').PORT || 3001;
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -21,7 +23,7 @@ export default defineConfig(() => {
       // Proxy API requests to Express backend
       proxy: {
         '/api': {
-          target: 'http://localhost:3001',
+          target: `http://localhost:${apiPort}`,
           changeOrigin: true,
         },
       },

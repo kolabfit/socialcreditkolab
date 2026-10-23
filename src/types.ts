@@ -22,6 +22,23 @@ export interface User {
   status?: 'active' | 'suspended';
   photoUrl?: string;
   rubricScores?: Record<string, number>;
+  presenceStats?: PresenceSync[]; // riwayat sync presensi, terbaru di depan
+}
+
+// Satu kali sync dari aplikasi presensi (lihat server/routes/integration.js)
+export interface PresenceSync {
+  synced_at: string;
+  period_start: string;
+  period_end: string;
+  ontime: number;
+  late: number;
+  alpha: number;
+  izin_sakit: number;
+  total_late_minutes: number;
+  missing_daily_reports: number;
+  reports: { approved: number; disapproved: number; pending: number };
+  score: number;
+  parts: { kehadiran: number; konsistensi: number; kualitas: number | null };
 }
 
 export interface ActivityLog {
@@ -49,6 +66,8 @@ export interface RubricAspect {
   id: string;
   name: string;
   weight: number; // percentage
+  max_points?: number;
+  source?: 'presence' | null; // 'presence' = nilai diisi otomatis dari aplikasi presensi
 }
 
 export interface Startup {

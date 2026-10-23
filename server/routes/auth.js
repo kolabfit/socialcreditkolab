@@ -1,33 +1,24 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
-import { generateToken, authMiddleware } from '../middleware/auth.js';
+import { generateToken, authMiddleware, rateLimit } from '../middleware/auth.js';
+import { mapUser } from '../utils/mapUser.js';
 
 const router = Router();
 
-// Helper function to convert DB snake_case to camelCase
-const mapUser = (user) => {
-  if (!user) return user;
-  const { 
-    password_hash, 
-    lecturer_code, 
-    advised_startups, 
-    photo_url, 
-    rubric_scores,
-    ...rest 
-  } = user;
-  
-  return {
-    ...rest,
-    ...(lecturer_code !== undefined && { lecturerCode: lecturer_code }),
-    ...(advised_startups !== undefined && { advisedStartups: advised_startups }),
-    ...(photo_url !== undefined && { photoUrl: photo_url }),
-    ...(rubric_scores !== undefined && { rubricScores: rubric_scores }),
-  };
-};
+// Role yang boleh daftar sendiri. HR (field) hanya bisa dibuat oleh HR lain.
+const SELF_REGISTER_ROLES = ['intern', 'academic'];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  key: (req) => String(req.body?.email || '').toLowerCase(),
+});
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -67,12 +58,21 @@ router.post('/login', async (req, res) => {
 });
 
 // POST /api/auth/register
-router.post('/register', async (req, res) => {
+router.post('/register', rateLimit({ windowMs: 60 * 60 * 1000, max: 20 }), async (req, res) => {
   try {
-    const { name, email, password, role, nim, startup, lecturerCode, advisedStartups } = req.body;
+    const { name, email, password, role, nim, startup, lecturerCode, advisedStartups, nickname, phone } = req.body;
 
     if (!name || !email || !password || !role) {
       return res.status(400).json({ error: 'Nama, email, password, dan role wajib diisi.' });
+    }
+    if (!SELF_REGISTER_ROLES.includes(role)) {
+      return res.status(403).json({ error: 'Role tidak diizinkan untuk pendaftaran mandiri.' });
+    }
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: 'Format email tidak valid.' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Password minimal 6 karakter.' });
     }
 
     // Check if email already exists
@@ -87,15 +87,16 @@ router.post('/register', async (req, res) => {
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const id = `u${Date.now()}`;
 
     const newUser = {
-      id,
+      id: randomUUID(),
       name,
       email,
       role,
       score: 0,
       password_hash,
+      nickname: nickname || null,
+      phone: phone || null,
       nim: nim || null,
       startup: startup || null,
       lecturer_code: lecturerCode || null,

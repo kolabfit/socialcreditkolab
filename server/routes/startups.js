@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
 
@@ -34,7 +35,7 @@ router.post('/', requireRole('field'), async (req, res) => {
       return res.status(400).json({ error: 'Nama startup wajib diisi.' });
     }
 
-    const id = `s${Date.now()}`;
+    const id = randomUUID();
 
     const { data: startup, error } = await supabase
       .from('startups')
@@ -57,9 +58,9 @@ router.post('/', requireRole('field'), async (req, res) => {
 // PUT /api/startups/:id — Update startup (field only)
 router.put('/:id', requireRole('field'), async (req, res) => {
   try {
-    const updates = { ...req.body };
-    delete updates.id;
-    delete updates.created_at;
+    const updates = {};
+    if (req.body.name !== undefined) updates.name = req.body.name;
+    if (req.body.description !== undefined) updates.description = req.body.description;
 
     const { data: startup, error } = await supabase
       .from('startups')

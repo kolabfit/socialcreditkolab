@@ -1,13 +1,15 @@
 import InternDetailModal from "./InternDetailModal";
 import React, { useState } from 'react';
 import { useAppContext } from '../store';
+import { integrationApi } from '../api';
 // @ts-ignore - motion/react type missing
 import { motion, AnimatePresence } from 'motion/react';
 import { Settings, Users, Eye, Activity, FileText, BarChart3, Edit2, Save, X, Ban, Trash2, Plus, ArrowUpRight, ArrowDownRight, Upload, ImageIcon, ShieldCheck, Star, ShieldAlert, Download, FileSpreadsheet, CheckSquare, ScanFace, MoreVertical } from 'lucide-react';
 import { useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
 import { Role } from '../types';
-import { getGrade } from '../utils';
+import { getGrade, computeInternScore, computeInternScoreAt, maxPointsFor, DEFAULT_MAX_POINTS, aspectLabel } from '../utils';
+import { ScorePrediction, AspectBadge, ScoreGuide, ScoreBadge } from './ScorePrediction';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
 import { DataTable } from './DataTable';
@@ -15,7 +17,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function FieldDashboard({ activeTab }: { activeTab: string }) {
-  const { users, reports, updateScore, updateUser, deleteUser, suspendUser, addReport, deleteReport, addUser, currentUser, rubricAspects, updateRubricAspects, startups, addStartup, updateStartup, deleteStartup, batches, addBatch, updateBatch, deleteBatch, activities, updateActivityStatus } = useAppContext();
+  const { users, reports, updateScore, updateUser, deleteUser, suspendUser, addReport, deleteReport, addUser, currentUser, rubricAspects, updateRubricAspects, startups, addStartup, updateStartup, deleteStartup, batches, addBatch, updateBatch, deleteBatch, activities, updateActivityStatus, refreshData } = useAppContext();
 
 
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -305,10 +307,36 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
     const Swal = (await import('sweetalert2')).default;
     const totalWeight = tempRubrics.reduce((acc, r) => acc + (Number(r.weight) || 0), 0);
     if (totalWeight !== 100) {
-      Swal.fire('Peringatan', 'Total bobot persentase harus 100%', 'warning');
+      Swal.fire('Peringatan', `Total bobot persentase harus 100% (sekarang ${totalWeight}%)`, 'warning');
       return;
     }
-    
+    if (tempRubrics.length === 0) {
+      Swal.fire('Peringatan', 'Minimal harus ada 1 komponen penilaian.', 'warning');
+      return;
+    }
+
+    // Aspek yang dihapus: laporan & nilai intern-nya wajib dipindah ke aspek lain supaya tidak hilang
+    const reassign: Record<string, string> = {};
+    const removed = rubricAspects.filter(a => !tempRubrics.some(t => t.id === a.id));
+    for (const aspect of removed) {
+      const usedCount = reports.filter(r => r.aspectId === aspect.id).length;
+      const valueCount = users.filter(u => u.rubricScores?.[aspect.id]).length;
+      if (usedCount === 0 && valueCount === 0) continue;
+      const { value, isConfirmed } = await Swal.fire({
+        title: `Hapus aspek "${aspect.name}"`,
+        html: `Aspek ini dipakai <b>${usedCount}</b> laporan dan nilai <b>${valueCount}</b> intern.<br/>Pindahkan laporan & nilainya ke aspek:`,
+        input: 'select',
+        inputOptions: Object.fromEntries(tempRubrics.map(t => [t.id, t.name])),
+        inputPlaceholder: 'Pilih aspek tujuan...',
+        showCancelButton: true,
+        confirmButtonText: 'Pindahkan & hapus',
+        cancelButtonText: 'Batal',
+        inputValidator: (v) => (v ? null : 'Pilih aspek tujuan terlebih dahulu'),
+      });
+      if (!isConfirmed) return;
+      reassign[aspect.id] = value;
+    }
+
     Swal.fire({
       title: 'Memproses...',
       text: 'Menyimpan rubrik',
@@ -319,11 +347,49 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
     });
 
     try {
-      await updateRubricAspects(tempRubrics);
+      // Send only clean fields: id, name, weight
+      const cleanAspects = tempRubrics.map(r => ({ id: r.id, name: r.name, weight: Number(r.weight), max_points: maxPointsFor(r), source: r.source || null }));
+      await updateRubricAspects(cleanAspects, reassign);
       setIsEditingRubric(false);
       Swal.fire('Berhasil', 'Rubrik penilaian berhasil diperbarui', 'success');
     } catch (error: any) {
       Swal.fire('Gagal', 'Rubrik gagal diperbarui: ' + error.message, 'error');
+    }
+  };
+
+  // Tarik rekap presensi satu batch magang → isi nilai aspek yang bersumber presensi
+  const handleSyncPresence = async () => {
+    const Swal = (await import('sweetalert2')).default;
+    const { value: period, isConfirmed } = await Swal.fire({
+      title: 'Sync Presensi',
+      html: `<p class="text-sm text-neutral-500 mb-3">Periode batch magang yang dinilai</p>
+        <label class="block text-left text-sm font-semibold">Mulai</label><input id="sync-from" type="date" class="swal2-input" style="margin:4px 0 12px;width:100%">
+        <label class="block text-left text-sm font-semibold">Selesai</label><input id="sync-to" type="date" class="swal2-input" style="margin:4px 0 0;width:100%">`,
+      showCancelButton: true,
+      confirmButtonText: 'Sync',
+      cancelButtonText: 'Batal',
+      preConfirm: () => {
+        const from = (document.getElementById('sync-from') as HTMLInputElement).value;
+        const to = (document.getElementById('sync-to') as HTMLInputElement).value;
+        if (!from || !to || from > to) return Swal.showValidationMessage('Isi tanggal mulai & selesai dengan benar');
+        return { from, to };
+      },
+    });
+    if (!isConfirmed || !period) return;
+
+    Swal.fire({ title: 'Memproses...', text: 'Mengambil data presensi', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+    try {
+      const result = await integrationApi.syncPresence(period.from, period.to);
+      await refreshData();
+      const list = (title: string, names: string[]) => names.length
+        ? `<p class="mt-3 text-left text-sm"><b>${title} (${names.length}):</b> ${names.map(n => n.replace(/</g, '&lt;')).join(', ')}</p>` : '';
+      Swal.fire({
+        icon: 'success',
+        title: `${result.updated} intern diperbarui`,
+        html: list('Tidak ditemukan di presensi (cek NIM/email)', result.unmatched) + list('Tidak ada hari wajib hadir', result.noData),
+      });
+    } catch (error: any) {
+      Swal.fire('Gagal', error.message, 'error');
     }
   };
 
@@ -468,9 +534,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
         
         let sumScores = 0;
         interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetDay);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
+          sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetDay);
         });
         
         trendData.push({
@@ -495,9 +559,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
           const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
           let sumScores = 0;
           interns.forEach(intern => {
-            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
-            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-            sumScores += (intern.score - futurePointsImpact);
+            sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetMonth);
           });
           score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
@@ -522,9 +584,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
           const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
           let sumScores = 0;
           interns.forEach(intern => {
-            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
-            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-            sumScores += (intern.score - futurePointsImpact);
+            sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetYear);
           });
           score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
@@ -537,7 +597,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
     }
     
     return trendData;
-  }, [interns, reports, chartFilter]);
+  }, [interns, reports, rubricAspects, chartFilter]);
 
   const attendanceData = [
     { name: 'Senin', inTime: 80, onTime: 15, telat: 5 },
@@ -651,7 +711,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                           {[...interns].filter(i => i.score >= 70).sort((a, b) => b.score - a.score).slice(0, 5).map(intern => (
                             <tr key={intern.id} className="hover:bg-neutral-50/50 transition-colors">
                               <td className="p-4 font-bold text-neutral-800">{intern.name}</td>
-                              <td className="p-4 font-bold text-right text-[#EAB308]">{intern.score}</td>
+                              <td className="p-4 text-right"><ScoreBadge score={intern.score} /></td>
                             </tr>
                           ))}
                           {[...interns].filter(i => i.score >= 70).length === 0 && (
@@ -683,7 +743,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                           {paginationAttention.currentData.map(intern => (
                             <tr key={intern.id} className="hover:bg-neutral-50/50 transition-colors">
                               <td className="p-4 font-bold text-neutral-800">{intern.name}</td>
-                              <td className="p-4 font-bold text-right text-red-500">{intern.score}</td>
+                              <td className="p-4 text-right"><ScoreBadge score={intern.score} /></td>
                             </tr>
                           ))}
                           {needsAttentionList.length === 0 && (
@@ -777,7 +837,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                       filterable: true,
                       render: (user) => (
                         <div className="flex flex-col gap-1">
-                           <div className="flex items-center gap-1 font-bold text-[#EAB308]"><Star className="w-4 h-4 fill-[#EAB308]"/> {user.score} (Nilai {getGrade(user.score)})</div>
+                           <div className="flex items-center gap-1 font-bold text-[#EAB308]"><Star className="w-4 h-4 fill-[#EAB308]"/> <ScoreBadge score={user.score} /></div>
                         </div>
                       )
                     }
@@ -1105,10 +1165,10 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-semibold text-neutral-700 mb-2">Dampak Poin</label>
-                      <input 
-                        type="number" 
-                        min="1" max="100" required
+                      <label className="block text-sm font-semibold text-neutral-700 mb-2">Dampak Poin (maks ±{maxPointsFor(rubricAspects.find(a => a.id === selectedAspectId))})</label>
+                      <input
+                        type="number"
+                        min="1" max={maxPointsFor(rubricAspects.find(a => a.id === selectedAspectId))} required
                         value={pointsImpact}
                         onChange={(e) => setPointsImpact(Number(e.target.value))}
                         className="w-full p-3.5 bg-white border border-neutral-200 rounded-xl focus:ring-2 focus:ring-[#EAB308] outline-none font-medium transition-all shadow-sm"
@@ -1358,6 +1418,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                           {report.pointsImpact > 0 ? `+${report.pointsImpact}` : report.pointsImpact} Poin
                         </span>
                         <span className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider">{report.type === 'good' ? 'Tindakan Baik' : 'Pelanggaran'}</span>
+                        <AspectBadge label={aspectLabel(report.aspectId, rubricAspects)} />
                       </div>
                     )
                   },
@@ -1431,7 +1492,12 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                       <p className="text-xs text-neutral-500 mt-1">Total akumulasi bobot harus 100%.</p>
                     </div>
                     {!isEditingRubric ? (
-                      <button onClick={() => {setTempRubrics(rubricAspects); setIsEditingRubric(true)}} className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 text-sm font-bold flex items-center gap-2 transition-colors"><Edit2 className="w-4 h-4"/> Edit Rubrik</button>
+                      <div className="flex gap-2">
+                        {rubricAspects.some(r => r.source === 'presence') && (
+                          <button onClick={handleSyncPresence} className="px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl hover:bg-emerald-100 text-sm font-bold flex items-center gap-2 transition-colors"><Download className="w-4 h-4"/> Sync Presensi</button>
+                        )}
+                        <button onClick={() => {setTempRubrics(rubricAspects); setIsEditingRubric(true)}} className="px-4 py-2 bg-indigo-50 text-indigo-700 rounded-xl hover:bg-indigo-100 text-sm font-bold flex items-center gap-2 transition-colors"><Edit2 className="w-4 h-4"/> Edit Rubrik</button>
+                      </div>
                     ) : (
                       <div className="flex gap-2">
                         <button onClick={() => setIsEditingRubric(false)} className="px-4 py-2 bg-neutral-100 text-neutral-600 rounded-xl hover:bg-neutral-200 text-sm font-bold flex items-center gap-2 transition-colors"><X className="w-4 h-4"/> Batal</button>
@@ -1458,6 +1524,19 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                                }} className="w-16 bg-white border border-neutral-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-right transition-all" />
                                <span className="text-neutral-500">%</span>
                              </div>
+                             <div className="flex items-center gap-2 w-32" title="Batas poin per laporan untuk aspek ini">
+                               <span className="text-neutral-500 text-xs">Maks ±</span>
+                               <input type="number" min="1" max="100" value={rubric.max_points ?? DEFAULT_MAX_POINTS} onChange={(e) => {
+                                 setTempRubrics(tempRubrics.map((r, i) => i === idx ? { ...r, max_points: Number(e.target.value) } : r));
+                               }} className="w-16 bg-white border border-neutral-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 text-right transition-all" />
+                             </div>
+                             <label className="flex items-center gap-1.5 text-xs text-neutral-600 whitespace-nowrap" title="Nilai aspek diisi otomatis dari aplikasi presensi (maks 1 aspek)">
+                               <input type="checkbox" checked={rubric.source === 'presence'} onChange={(e) => {
+                                 // Maks 1 aspek: mencentang satu aspek melepas centang aspek lain
+                                 setTempRubrics(tempRubrics.map((r, i) => ({ ...r, source: e.target.checked ? (i === idx ? 'presence' : null) : (i === idx ? null : r.source) })));
+                               }} className="accent-emerald-600" />
+                               Dari presensi
+                             </label>
                              <button onClick={() => setTempRubrics(tempRubrics.filter(r => r.id !== rubric.id))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 className="w-4 h-4"/></button>
                           </li>
                         ))
@@ -1465,14 +1544,32 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                         rubricAspects.map(rubric => (
                           <li key={rubric.id} className="flex justify-between items-center bg-white p-4 rounded-xl border border-neutral-100 shadow-sm">
                             <span className="text-neutral-700 font-semibold">{rubric.name}</span>
-                            <span className="font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">{rubric.weight}%</span>
+                            <span className="flex items-center gap-2">
+                              {rubric.source === 'presence' && <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg">otomatis dari presensi</span>}
+                              <span className="text-xs font-semibold text-neutral-500">maks ±{maxPointsFor(rubric)} poin/laporan</span>
+                              <span className="font-bold text-indigo-600 bg-indigo-50 px-3 py-1 rounded-lg">{rubric.weight}%</span>
+                            </span>
                           </li>
                         ))
                       )}
                       {isEditingRubric && (
-                        <li className="mt-4">
-                          <button onClick={() => setTempRubrics([...tempRubrics, { id: Math.random().toString(), name: 'Aspek Baru', weight: 0 }])} className="w-full py-3 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-600 font-bold text-sm flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors"><Plus className="w-4 h-4"/> Tambah Aspek Penilaian</button>
-                        </li>
+                        <>
+                          <li className="mt-4">
+                            <button onClick={() => setTempRubrics([...tempRubrics, { id: crypto.randomUUID(), name: 'Aspek Baru', weight: 0, max_points: DEFAULT_MAX_POINTS }])} className="w-full py-3 border-2 border-dashed border-indigo-200 rounded-xl text-indigo-600 font-bold text-sm flex items-center justify-center gap-2 hover:bg-indigo-50 transition-colors"><Plus className="w-4 h-4"/> Tambah Aspek Penilaian</button>
+                          </li>
+                          <li className="mt-3">
+                            {(() => {
+                              const total = tempRubrics.reduce((acc, r) => acc + (Number(r.weight) || 0), 0);
+                              const isOk = total === 100;
+                              return (
+                                <div className={`flex justify-between items-center px-4 py-2.5 rounded-xl font-bold text-sm border ${isOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
+                                  <span>Total Bobot</span>
+                                  <span>{total}% {isOk ? '✓' : `(harus 100%)`}</span>
+                                </div>
+                              );
+                            })()}
+                          </li>
+                        </>
                       )}
                     </ul>
                   </div>
@@ -1957,20 +2054,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
             
             <form onSubmit={(e) => {
               e.preventDefault();
-              let oldWeightedSum = 0;
-              rubricAspects.forEach(r => {
-                oldWeightedSum += (rubricTargetUser.rubricScores?.[r.id] || 0) * (r.weight / 100);
-              });
-              oldWeightedSum = Math.round(oldWeightedSum);
-              const bonusPoints = (rubricTargetUser.score || 0) - oldWeightedSum;
-
-              let newWeightedSum = 0;
-              rubricAspects.forEach(r => {
-                newWeightedSum += (rubricValues[r.id] || 0) * (r.weight / 100);
-              });
-              newWeightedSum = Math.round(newWeightedSum);
-              
-              const totalScore = newWeightedSum + bonusPoints;
+              const totalScore = computeInternScore({ ...rubricTargetUser, rubricScores: rubricValues }, rubricAspects, reports);
               updateScore(rubricTargetUser.id, totalScore, rubricValues);
               setShowRubricScoreModal(false);
               import('sweetalert2').then(Swal => Swal.default.fire('Berhasil', 'Nilai akhir berhasil diperbarui (Skala: ' + getGrade(totalScore) + ')', 'success'));
@@ -1980,14 +2064,19 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                 <p className="text-xl font-bold">{rubricTargetUser.name}</p>
               </div>
 
+              <ScoreGuide />
+
               {rubricAspects.map(rubric => (
                 <div key={rubric.id} className="flex flex-col gap-2">
                   <div className="flex justify-between items-center">
                     <label className="text-sm font-semibold text-neutral-700">{rubric.name}</label>
                     <span className="text-xs font-bold bg-neutral-100 text-neutral-500 px-2 py-1 rounded">Bobot: {rubric.weight}%</span>
                   </div>
+                  <p className="text-xs text-neutral-500">{rubric.source === 'presence' ? 'Otomatis dari presensi, tidak perlu diisi.' : `Nilai 0–100, sudah termasuk poin laporan. Tiap laporan perilaku aspek ini maks ±${maxPointsFor(rubric)} poin.`}</p>
                   <input 
                     type="number" required min="0" max="100"
+                    disabled={rubric.source === 'presence'}
+                    title={rubric.source === 'presence' ? 'Otomatis dari presensi. Ubah lewat Sync Presensi di Settings.' : undefined}
                     value={rubricValues[rubric.id] !== undefined ? rubricValues[rubric.id] : ''}
                     onChange={(e) => {
                       let val = e.target.value === '' ? '' : Number(e.target.value);
@@ -2002,25 +2091,7 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                 </div>
               ))}
               
-              <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mt-6">
-                <p className="text-sm font-bold text-indigo-900 mb-1">Prediksi Nilai Akhir</p>
-                <p className="text-3xl font-bold text-indigo-700">
-                  {(() => {
-                    let oldWeightedSum = 0;
-                    rubricAspects.forEach(r => oldWeightedSum += (rubricTargetUser.rubricScores?.[r.id] || 0) * (r.weight / 100));
-                    oldWeightedSum = Math.round(oldWeightedSum);
-                    const bonusPoints = (rubricTargetUser.score || 0) - oldWeightedSum;
-                    const newWeightedSum = Math.round(rubricAspects.reduce((acc, r) => acc + ((rubricValues[r.id] || 0) * (r.weight / 100)), 0));
-                    const totalScore = newWeightedSum + bonusPoints;
-                    return (
-                      <>
-                        {totalScore}
-                        <span className="text-xl ml-2 opacity-70">({getGrade(totalScore)})</span>
-                      </>
-                    );
-                  })()}
-                </p>
-              </div>
+              <ScorePrediction user={rubricTargetUser} rubricValues={rubricValues} rubricAspects={rubricAspects} reports={reports} />
 
               <button 
                 type="submit"

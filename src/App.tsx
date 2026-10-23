@@ -1,16 +1,31 @@
 import React from 'react';
 import { AppProvider, useAppContext } from './store';
 import Login from './components/Login';
-import InternDashboard from './components/InternDashboard';
-import AcademicDashboard from './components/AcademicDashboard';
-import FieldDashboard from './components/FieldDashboard';
+// Lazy: tiap user hanya butuh dashboard sesuai role-nya
+const InternDashboard = React.lazy(() => import('./components/InternDashboard'));
+const AcademicDashboard = React.lazy(() => import('./components/AcademicDashboard'));
+const FieldDashboard = React.lazy(() => import('./components/FieldDashboard'));
 import AnimatedBackground from './components/AnimatedBackground';
 import { LogOut, User as UserIcon, BarChart3, Users, Star, FileText, Settings, AlertCircle, Menu, X } from 'lucide-react';
+
+const TABS = ['dashboard', 'users', 'scores', 'activities', 'reports', 'attendance', 'settings', 'profile', 'incidents'] as const;
+type Tab = typeof TABS[number];
+const tabFromHash = (): Tab => { const h = window.location.hash.slice(1) as Tab; return TABS.includes(h) ? h : 'dashboard'; };
 
 function DashboardLayout() {
   const { currentUser, logout, loading } = useAppContext();
 
-  const [activeTab, setActiveTab] = React.useState<'dashboard' | 'users' | 'scores' | 'activities' | 'reports' | 'attendance' | 'settings' | 'profile' | 'incidents'>('dashboard');
+  // Tab disimpan di URL hash (#reports, dst) supaya refresh & tombol back tetap di tab yang sama
+  const [activeTab, setActiveTabState] = React.useState<Tab>(tabFromHash);
+  const setActiveTab = (tab: Tab) => {
+    if (window.location.hash.slice(1) !== tab) window.location.hash = tab;
+    setActiveTabState(tab);
+  };
+  React.useEffect(() => {
+    const onHash = () => setActiveTabState(tabFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   if (loading) {
@@ -24,7 +39,13 @@ function DashboardLayout() {
 
   if (!currentUser) return <Login />;
 
-  const renderDashboardContent = () => {
+  const renderDashboardContent = () => (
+    <React.Suspense fallback={<div className="flex justify-center py-20"><div className="w-10 h-10 border-4 border-[#EAB308] border-t-transparent rounded-full animate-spin" /></div>}>
+      {renderRoleDashboard()}
+    </React.Suspense>
+  );
+
+  const renderRoleDashboard = () => {
     switch (currentUser.role) {
       case 'intern':
         return <InternDashboard activeTab={activeTab} setActiveTab={setActiveTab} />;
@@ -142,7 +163,7 @@ function DashboardLayout() {
     <div className="flex h-screen bg-transparent overflow-hidden font-sans text-neutral-900">
       {/* Desktop Sidebar */}
       <aside className="w-72 bg-black text-white hidden md:flex flex-col border-r border-[#EAB308]/20 shadow-2xl z-40 shrink-0">
-        <SidebarContent />
+        {SidebarContent()}
       </aside>
 
       {/* Mobile Overlay Sidebar */}
@@ -161,7 +182,7 @@ function DashboardLayout() {
             >
               <X className="w-5 h-5" />
             </button>
-            <SidebarContent />
+            {SidebarContent()}
           </aside>
         </div>
       )}

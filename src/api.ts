@@ -45,9 +45,15 @@ async function request<T>(
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: 'Request gagal' }));
+    // Token kedaluwarsa / akun disuspend: paksa login ulang
+    if (response.status === 401 && token) {
+      clearToken();
+      window.location.reload();
+    }
     throw new Error(errorData.error || `HTTP ${response.status}`);
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 
@@ -163,10 +169,11 @@ export const reportsApi = {
 export const rubricsApi = {
   list: () => request<any[]>('/rubrics'),
 
-  update: (aspects: { id: string; name: string; weight: number }[]) =>
+  // reassign: { idAspekDihapus: idAspekTujuan } — laporan & nilai aspek yang dihapus dipindah ke tujuan
+  update: (aspects: { id: string; name: string; weight: number; max_points?: number; source?: 'presence' | null }[], reassign: Record<string, string> = {}) =>
     request<any[]>('/rubrics', {
       method: 'PUT',
-      body: JSON.stringify({ aspects }),
+      body: JSON.stringify({ aspects, reassign }),
     }),
 };
 
@@ -239,3 +246,16 @@ export const activitiesApi = {
     request<{ message: string }>(`/activities/${id}`, { method: 'DELETE' }),
 };
 
+
+// ==========================================
+// Integration API (Aplikasi Presensi)
+// ==========================================
+
+export const integrationApi = {
+  // Tarik rekap presensi satu batch (YYYY-MM-DD), isi nilai aspek presensi
+  syncPresence: (from: string, to: string) =>
+    request<{ updated: number; unmatched: string[]; noData: string[] }>('/integration/sync-presence', {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    }),
+};

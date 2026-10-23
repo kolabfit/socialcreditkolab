@@ -1,29 +1,24 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
 import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { mapUser, ROLES } from '../utils/mapUser.js';
 
 const router = Router();
 
-// Helper function to convert DB snake_case to camelCase
-const mapUser = (user) => {
-  if (!user) return user;
-  const { 
-    password_hash, 
-    lecturer_code, 
-    advised_startups, 
-    photo_url, 
-    rubric_scores,
-    ...rest 
-  } = user;
-  
-  return {
-    ...rest,
-    ...(lecturer_code !== undefined && { lecturerCode: lecturer_code }),
-    ...(advised_startups !== undefined && { advisedStartups: advised_startups }),
-    ...(photo_url !== undefined && { photoUrl: photo_url }),
-    ...(rubric_scores !== undefined && { rubricScores: rubric_scores }),
-  };
+// Field yang boleh diubah lewat PUT /users/:id (camelCase dari frontend → kolom DB).
+// score, rubric_scores, status, id sengaja tidak ada di sini.
+const EDITABLE_FIELDS = {
+  name: 'name',
+  email: 'email',
+  nickname: 'nickname',
+  phone: 'phone',
+  nim: 'nim',
+  startup: 'startup',
+  lecturerCode: 'lecturer_code',
+  advisedStartups: 'advised_startups',
+  photoUrl: 'photo_url',
 };
 
 // All routes require authentication
@@ -33,9 +28,9 @@ router.use(authMiddleware);
 router.get('/', async (req, res) => {
   try {
     const { role, startup } = req.query;
-    
+
     let query = supabase.from('users').select('*').order('name');
-    
+
     if (role) query = query.eq('role', role);
     if (startup) query = query.eq('startup', startup);
 
@@ -45,8 +40,13 @@ router.get('/', async (req, res) => {
       return res.status(500).json({ error: 'Gagal mengambil data users.' });
     }
 
-    const users = data.map(mapUser);
-    res.json(users);
+    let users = data;
+    // Intern hanya boleh melihat dirinya sendiri + pembimbing (bukan data intern lain)
+    if (req.user.role === 'intern') {
+      users = users.filter(u => u.id === req.user.id || u.role !== 'intern');
+    }
+
+    res.json(users.map(mapUser));
   } catch (err) {
     console.error('Get users error:', err);
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
@@ -66,6 +66,10 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'User tidak ditemukan.' });
     }
 
+    if (req.user.role === 'intern' && user.role === 'intern' && user.id !== req.user.id) {
+      return res.status(403).json({ error: 'Anda tidak memiliki akses untuk operasi ini.' });
+    }
+
     res.json(mapUser(user));
   } catch (err) {
     console.error('Get user error:', err);
@@ -73,33 +77,33 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// PUT /api/users/:id — Update user
+// PUT /api/users/:id — Update user (diri sendiri, atau HR untuk siapa saja)
 router.put('/:id', async (req, res) => {
   try {
-    const updates = { ...req.body };
-    
-    // If password is being updated, hash it
-    if (updates.password) {
-      updates.password_hash = await bcrypt.hash(updates.password, 10);
-      delete updates.password;
+    const isField = req.user.role === 'field';
+    if (!isField && req.params.id !== req.user.id) {
+      return res.status(403).json({ error: 'Anda hanya dapat mengubah profil sendiri.' });
     }
 
-    // Don't allow updating these fields directly
-    delete updates.id;
-    delete updates.created_at;
+    const updates = {};
+    for (const [key, column] of Object.entries(EDITABLE_FIELDS)) {
+      if (req.body[key] !== undefined) updates[column] = req.body[key];
+    }
 
-    // Convert camelCase to snake_case for specific fields
-    if (updates.lecturerCode !== undefined) {
-      updates.lecturer_code = updates.lecturerCode;
-      delete updates.lecturerCode;
+    // Hanya HR yang boleh mengganti role
+    if (req.body.role !== undefined && isField) {
+      if (!ROLES.includes(req.body.role)) {
+        return res.status(400).json({ error: 'Role tidak valid.' });
+      }
+      updates.role = req.body.role;
     }
-    if (updates.advisedStartups !== undefined) {
-      updates.advised_startups = updates.advisedStartups;
-      delete updates.advisedStartups;
+
+    if (req.body.password) {
+      updates.password_hash = await bcrypt.hash(req.body.password, 10);
     }
-    if (updates.photoUrl !== undefined) {
-      updates.photo_url = updates.photoUrl;
-      delete updates.photoUrl;
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'Tidak ada data yang diubah.' });
     }
 
     const { data: user, error } = await supabase
@@ -124,6 +128,10 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/users/:id — Delete user (field only)
 router.delete('/:id', requireRole('field'), async (req, res) => {
   try {
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Tidak dapat menghapus akun sendiri.' });
+    }
+
     const { error } = await supabase
       .from('users')
       .delete()
@@ -143,6 +151,10 @@ router.delete('/:id', requireRole('field'), async (req, res) => {
 // PATCH /api/users/:id/suspend — Suspend/unsuspend user (field only)
 router.patch('/:id/suspend', requireRole('field'), async (req, res) => {
   try {
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Tidak dapat mensuspend akun sendiri.' });
+    }
+
     const { suspended } = req.body;
     const status = suspended ? 'suspended' : 'active';
 
@@ -164,17 +176,30 @@ router.patch('/:id/suspend', requireRole('field'), async (req, res) => {
   }
 });
 
-// PATCH /api/users/:id/score — Update user score
-router.patch('/:id/score', async (req, res) => {
+// PATCH /api/users/:id/score — Update user score (pembimbing / HR)
+router.patch('/:id/score', requireRole('field', 'academic'), async (req, res) => {
   try {
     const { score, rubricScores } = req.body;
 
-    if (score === undefined) {
-      return res.status(400).json({ error: 'Score wajib diisi.' });
+    if (typeof score !== 'number' || !Number.isFinite(score)) {
+      return res.status(400).json({ error: 'Score wajib berupa angka.' });
+    }
+    if (rubricScores !== undefined && (typeof rubricScores !== 'object' || rubricScores === null || Array.isArray(rubricScores))) {
+      return res.status(400).json({ error: 'rubricScores tidak valid.' });
     }
 
-    const updates = { score };
+    // Skor maksimal 100
+    const updates = { score: Math.min(100, score) };
     if (rubricScores !== undefined) {
+      // Nilai aspek presensi hanya boleh diubah lewat sync presensi; pakai nilai yang tersimpan.
+      const { data: presenceAspects } = await supabase.from('rubric_aspects').select('id').eq('source', 'presence');
+      if (presenceAspects?.length) {
+        const { data: current } = await supabase.from('users').select('rubric_scores').eq('id', req.params.id).single();
+        for (const { id } of presenceAspects) {
+          if (current?.rubric_scores?.[id] !== undefined) rubricScores[id] = current.rubric_scores[id];
+          else delete rubricScores[id];
+        }
+      }
       updates.rubric_scores = rubricScores;
     }
 
@@ -182,11 +207,12 @@ router.patch('/:id/score', async (req, res) => {
       .from('users')
       .update(updates)
       .eq('id', req.params.id)
+      .eq('role', 'intern')
       .select()
       .single();
 
-    if (error) {
-      return res.status(500).json({ error: 'Gagal mengupdate score.' });
+    if (error || !user) {
+      return res.status(error ? 500 : 404).json({ error: 'Gagal mengupdate score.' });
     }
 
     res.json(mapUser(user));
@@ -199,22 +225,26 @@ router.patch('/:id/score', async (req, res) => {
 // POST /api/users — Add new user (field only)
 router.post('/', requireRole('field'), async (req, res) => {
   try {
-    const { name, email, password, role, nim, startup, lecturerCode, advisedStartups } = req.body;
+    const { name, email, password, role, nim, startup, lecturerCode, advisedStartups, nickname, phone } = req.body;
 
     if (!name || !email || !password || !role) {
       return res.status(400).json({ error: 'Nama, email, password, dan role wajib diisi.' });
     }
+    if (!ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Role tidak valid.' });
+    }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const id = `u${Date.now()}`;
 
     const newUser = {
-      id,
+      id: randomUUID(),
       name,
       email,
       role,
       score: 0,
       password_hash,
+      nickname: nickname || null,
+      phone: phone || null,
       nim: nim || null,
       startup: startup || null,
       lecturer_code: lecturerCode || null,
@@ -230,7 +260,9 @@ router.post('/', requireRole('field'), async (req, res) => {
 
     if (error) {
       console.error('Add user error:', error);
-      return res.status(500).json({ error: 'Gagal menambahkan user.' });
+      return res.status(error.code === '23505' ? 409 : 500).json({
+        error: error.code === '23505' ? 'Email sudah terdaftar.' : 'Gagal menambahkan user.',
+      });
     }
 
     res.status(201).json(mapUser(user));

@@ -1,7 +1,11 @@
 import express from 'express';
+import { randomUUID } from 'crypto';
 import { supabase } from '../config/supabase.js';
+import { authMiddleware, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
+
+router.use(authMiddleware);
 
 // GET /api/batches - List all batches
 router.get('/', async (req, res) => {
@@ -20,16 +24,19 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/batches - Create new batch
-router.post('/', async (req, res) => {
+router.post('/', requireRole('field'), async (req, res) => {
   try {
     const { name, date_range, status } = req.body;
-    
+
     if (!name || !date_range || !status) {
       return res.status(400).json({ error: 'Semua field (name, date_range, status) harus diisi.' });
     }
+    if (!['active', 'completed'].includes(status)) {
+      return res.status(400).json({ error: 'Status batch tidak valid.' });
+    }
 
     const newBatch = {
-      id: `b${Date.now()}`,
+      id: randomUUID(),
       name,
       date_range,
       status
@@ -50,7 +57,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/batches/:id - Update batch
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('field'), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, date_range, status } = req.body;
@@ -76,7 +83,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/batches/:id - Delete batch
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('field'), async (req, res) => {
   try {
     const { id } = req.params;
     const { error } = await supabase

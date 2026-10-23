@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, LineChart, Line } from 'recharts';
 import { Role } from '../types';
-import { getGrade } from '../utils';
+import { getGrade, computeInternScore, computeInternScoreAt, maxPointsFor, aspectLabel } from '../utils';
+import { ScorePrediction, AspectBadge, ScoreGuide, ScoreBadge } from './ScorePrediction';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
 import { DataTable } from './DataTable';
@@ -184,9 +185,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
         
         let sumScores = 0;
         interns.forEach(intern => {
-          const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetDay);
-          const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-          sumScores += (intern.score - futurePointsImpact);
+          sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetDay);
         });
         
         trendData.push({
@@ -211,9 +210,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
           const endOfTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0, 23, 59, 59).getTime();
           let sumScores = 0;
           interns.forEach(intern => {
-            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetMonth);
-            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-            sumScores += (intern.score - futurePointsImpact);
+            sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetMonth);
           });
           score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
@@ -238,9 +235,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
           const endOfTargetYear = new Date(targetYear, 11, 31, 23, 59, 59).getTime();
           let sumScores = 0;
           interns.forEach(intern => {
-            const futureReports = reports.filter(r => r.targetId === intern.id && new Date(r.date).getTime() > endOfTargetYear);
-            const futurePointsImpact = futureReports.reduce((sum, r) => sum + (r.pointsImpact || 0), 0);
-            sumScores += (intern.score - futurePointsImpact);
+            sumScores += computeInternScoreAt(intern, rubricAspects, reports, endOfTargetYear);
           });
           score = interns.length > 0 ? Math.max(0, Math.round(sumScores / interns.length)) : 0;
         }
@@ -253,7 +248,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
     }
     
     return trendData;
-  }, [interns, reports, chartFilter]);
+  }, [interns, reports, rubricAspects, chartFilter]);
 
   const topPerformers = React.useMemo(() => [...interns].filter(i => i.score >= 70).sort((a, b) => b.score - a.score).slice(0, 3), [interns]);
   const needsAttention = React.useMemo(() => [...interns].filter(i => i.score < 70).sort((a, b) => a.score - b.score).slice(0, 3), [interns]);
@@ -262,7 +257,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
   const userColumns = [
     { key: 'name', label: 'Nama Peserta', filterable: true, render: (row: any) => <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-neutral-200 overflow-hidden">{row.photoUrl ? <img src={row.photoUrl} className="w-full h-full object-cover"/> : <UserIcon className="w-full h-full p-1.5 text-neutral-400" />}</div><span className="font-bold">{row.name}</span></div> },
     { key: 'startup', label: 'Startup', filterable: true, render: (row: any) => <span className="text-xs font-bold bg-[#EAB308]/10 text-yellow-700 px-3 py-1.5 rounded-lg border border-[#EAB308]/20">{row.startup || '-'}</span> },
-    { key: 'score', label: 'Skor Saat Ini', filterable: true, render: (row: any) => <span className="font-black text-lg">{row.score}</span> },
+    { key: 'score', label: 'Skor Saat Ini', filterable: true, render: (row: any) => <ScoreBadge score={row.score} /> },
     { key: 'status', label: 'Status', filterable: true, render: (row: any) => <span className={`text-xs font-bold px-3 py-1.5 rounded-lg ${row.status === 'suspended' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-green-100 text-green-700 border border-green-200'}`}>{row.status === 'suspended' ? 'Suspended' : 'Aktif'}</span> },
     { key: 'action', label: 'Aksi', filterable: false, render: (row: any) => (
       <div className="flex items-center gap-2">
@@ -401,7 +396,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                          </div>
                       </div>
                       <div className="text-right">
-                         <p className="text-2xl font-black text-black">{intern.score}</p>
+                         <ScoreBadge score={intern.score} />
                       </div>
                     </div>
                   ))}
@@ -428,7 +423,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                       </div>
                       <div className="text-right">
                          <span className="text-xs font-bold bg-red-200 text-red-800 px-3 py-1 rounded-lg">Skor Merah</span>
-                         <p className="text-lg font-black text-red-600 mt-1">{intern.score}</p>
+                         <p className="mt-1"><ScoreBadge score={intern.score} /></p>
                       </div>
                     </div>
                   ))}
@@ -582,7 +577,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                       onChange={(e) => {
                         setSelectedAspectId(e.target.value);
                         const aspect = rubricAspects.find(a => a.id === e.target.value);
-                        if(aspect) setPointsImpact(aspect.weight);
+                        if(aspect) setPointsImpact(Math.min(aspect.weight, maxPointsFor(aspect)));
                       }}
                       className="w-full p-4 bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none font-medium appearance-none cursor-pointer transition-all"
                     >
@@ -593,9 +588,9 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">Dampak Poin</label>
-                    <input 
-                      type="number" required min="1" max="100"
+                    <label className="block text-sm font-bold text-neutral-700 mb-2 uppercase tracking-wide">Dampak Poin (maks ±{maxPointsFor(rubricAspects.find(a => a.id === selectedAspectId))})</label>
+                    <input
+                      type="number" required min="1" max={maxPointsFor(rubricAspects.find(a => a.id === selectedAspectId))}
                       value={pointsImpact}
                       onChange={(e) => setPointsImpact(Number(e.target.value))}
                       className="w-full p-4 text-center text-2xl font-black bg-neutral-50 border border-neutral-200 rounded-2xl focus:bg-white focus:ring-2 focus:ring-[#EAB308] outline-none transition-all"
@@ -686,7 +681,12 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                   );
                 }},
                 { key: 'description', label: 'Keterangan', filterable: true, render: (row: any) => <span className="text-xs">{row.description}</span> },
-                { key: 'pointsImpact', label: 'Poin', filterable: true, render: (row: any) => <span className={`font-bold ${row.pointsImpact > 0 ? 'text-green-600' : 'text-red-600'}`}>{row.pointsImpact > 0 ? '+' : ''}{row.pointsImpact}</span> },
+                { key: 'pointsImpact', label: 'Poin', filterable: true, render: (row: any) => (
+                  <div className="flex flex-col gap-1 items-start">
+                    <span className={`font-bold ${row.pointsImpact > 0 ? 'text-green-600' : 'text-red-600'}`}>{row.pointsImpact > 0 ? '+' : ''}{row.pointsImpact}</span>
+                    <AspectBadge label={aspectLabel(row.aspectId, rubricAspects)} />
+                  </div>
+                ) },
                 { key: 'action', label: 'Aksi', filterable: false, render: (row: any) => (
                   <button onClick={async () => {
                     const Swal = (await import('sweetalert2')).default;
@@ -883,20 +883,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
             
             <form onSubmit={(e) => {
               e.preventDefault();
-              let oldWeightedSum = 0;
-              rubricAspects.forEach(r => {
-                oldWeightedSum += (rubricTargetUser.rubricScores?.[r.id] || 0) * (r.weight / 100);
-              });
-              oldWeightedSum = Math.round(oldWeightedSum);
-              const bonusPoints = (rubricTargetUser.score || 0) - oldWeightedSum;
-
-              let newWeightedSum = 0;
-              rubricAspects.forEach(r => {
-                newWeightedSum += (rubricValues[r.id] || 0) * (r.weight / 100);
-              });
-              newWeightedSum = Math.round(newWeightedSum);
-              
-              const totalScore = newWeightedSum + bonusPoints;
+              const totalScore = computeInternScore({ ...rubricTargetUser, rubricScores: rubricValues }, rubricAspects, reports);
               updateScore(rubricTargetUser.id, totalScore, rubricValues);
               setShowRubricScoreModal(false);
               import('sweetalert2').then(Swal => Swal.default.fire('Berhasil', 'Nilai akhir berhasil diperbarui (Skala: ' + getGrade(totalScore) + ')', 'success'));
@@ -906,14 +893,19 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
                 <p className="text-xl font-bold">{rubricTargetUser.name}</p>
               </div>
 
+              <ScoreGuide />
+
               {rubricAspects.map(rubric => (
                 <div key={rubric.id} className="flex flex-col gap-2">
                   <div className="flex justify-between items-center">
                     <label className="text-sm font-semibold text-neutral-700">{rubric.name}</label>
                     <span className="text-xs font-bold bg-neutral-100 text-neutral-500 px-2 py-1 rounded">Bobot: {rubric.weight}%</span>
                   </div>
+                  <p className="text-xs text-neutral-500">{rubric.source === 'presence' ? 'Otomatis dari presensi, tidak perlu diisi.' : `Nilai 0–100, sudah termasuk poin laporan. Tiap laporan perilaku aspek ini maks ±${maxPointsFor(rubric)} poin.`}</p>
                   <input 
                     type="number" required min="0" max="100"
+                    disabled={rubric.source === 'presence'}
+                    title={rubric.source === 'presence' ? 'Otomatis dari presensi (diisi HR lewat Sync Presensi).' : undefined}
                     value={rubricValues[rubric.id] !== undefined ? rubricValues[rubric.id] : ''}
                     onChange={(e) => {
                       let val = e.target.value === '' ? '' : Number(e.target.value);
@@ -929,10 +921,7 @@ export default function AcademicDashboard({ activeTab, setActiveTab }: { activeT
               ))}
               
               <div className="mt-8 pt-6 border-t border-neutral-100">
-                <p className="text-sm font-bold text-indigo-900 mb-1">Prediksi Nilai Akhir</p>
-                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-xl">
-                  <p className="text-sm text-indigo-800">Nilai akan dikalkulasi otomatis sesuai bobot masing-masing aspek ditambah dengan poin social credit (+/-) yang sudah dikumpulkan sebelumnya.</p>
-                </div>
+                <ScorePrediction user={rubricTargetUser} rubricValues={rubricValues} rubricAspects={rubricAspects} reports={reports} />
               </div>
 
               <button 

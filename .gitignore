@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Backup data DB (berisi hash password) — jangan di-commit
+backups/

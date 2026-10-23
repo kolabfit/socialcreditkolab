@@ -3,7 +3,9 @@ import { useAppContext } from '../store';
 // @ts-ignore - motion/react type missing
 import { motion, AnimatePresence } from 'motion/react';
 import { Camera, Send, FileText, CheckCircle, Activity, Star, AlertCircle, X, ArrowUpRight, ArrowDownRight, User as UserIcon, BarChart3, Clock, Upload, ChevronLeft, ChevronRight, Search, Filter, ChevronDown , ScanFace } from 'lucide-react';
-import { getGrade } from '../utils';
+import { getGrade, aspectLabel } from '../utils';
+import { AspectBadge, ScoreBadge } from './ScorePrediction';
+import { PresenceHistory } from './PresenceHistory';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend, Cell, PieChart, Pie, BarChart, Bar } from 'recharts';
 import { usePagination } from '../hooks/usePagination';
 import { Pagination } from './Pagination';
@@ -11,7 +13,7 @@ import { DataTable } from './DataTable';
 import Swal from 'sweetalert2';
 
 export default function InternDashboard({ activeTab = 'dashboard', setActiveTab }: { activeTab?: string, setActiveTab?: (tab: any) => void }) {
-  const { currentUser, updateUser, reports, startups, users, activities, addActivity } = useAppContext();
+  const { currentUser, updateUser, reports, startups, users, activities, addActivity, rubricAspects } = useAppContext();
   
   // Incident Form
   const [incidentTitle, setIncidentTitle] = useState('');
@@ -207,10 +209,11 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
       status: rpt.type === 'good' ? 'Positif' : 'Negatif',
       evaluatorId: rpt.reporterId,
       impact: rpt.pointsImpact,
+      aspect: aspectLabel(rpt.aspectId, rubricAspects),
       targetType: rpt.targetType,
       photoUrl: rpt.photoUrl
     })).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [myReports]);
+  }, [myReports, rubricAspects]);
 
   const activityColumns = [
     { key: 'dateStr', label: 'Tanggal', filterable: true, render: (row: any) => new Date(row.date).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) },
@@ -265,6 +268,7 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
             {row.impact > 0 ? '+' : ''}{row.impact} Poin
           </span>
         )}
+        {row.aspect !== undefined && <AspectBadge label={row.aspect} />}
       </div>
     )}
   ];
@@ -313,8 +317,7 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
                   <div>
                     <p className="text-sm text-neutral-500 font-semibold mb-1">Social Credit Score</p>
                     <div className="flex items-end gap-2">
-                      <p className="text-4xl font-bold text-black">{currentUser.score}</p>
-                      <p className="text-lg font-bold text-[#EAB308] pb-1">({getGrade(currentUser.score)})</p>
+                      <ScoreBadge score={currentUser.score} size="lg" />
                     </div>
                   </div>
                 </div>
@@ -324,7 +327,7 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
                     <span>150 max</span>
                   </div>
                   <div className="w-full bg-neutral-100 h-2 rounded-full overflow-hidden">
-                    <div className="bg-[#EAB308] h-full rounded-full transition-all duration-1000" style={{ width: `${Math.min((currentUser.score / 150) * 100, 100)}%` }}></div>
+                    <div className="bg-[#EAB308] h-full rounded-full transition-all duration-1000" style={{ width: `${Math.max(0, Math.min(currentUser.score, 100))}%` }}></div>
                   </div>
                 </div>
               </div>
@@ -350,6 +353,8 @@ export default function InternDashboard({ activeTab = 'dashboard', setActiveTab 
                 </div>
               </div>
             </div>
+
+            <PresenceHistory history={currentUser.presenceStats} />
 
             {/* CHARTS FULL WIDTH */}
             <div className="grid grid-cols-1 gap-6">

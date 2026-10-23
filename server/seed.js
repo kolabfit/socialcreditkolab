@@ -33,11 +33,21 @@ async function hashPassword(plain) {
 async function seed() {
   console.log('🌱 Starting seed process...\n');
 
+  // Seed hanya untuk DB kosong. Di DB yang sudah berisi data wajib pakai --force.
+  const { count: existingUsers } = await supabase.from('users').select('id', { count: 'exact', head: true });
+  if (existingUsers > 0 && !process.argv.includes('--force')) {
+    console.error(`❌ Database sudah berisi ${existingUsers} user. Seed dibatalkan agar data tidak tercampur.`);
+    console.error('   Jalankan "npm run seed -- --force" hanya jika benar-benar perlu menambah data seed yang belum ada.');
+    process.exitCode = 1;
+    return;
+  }
+  // ignoreDuplicates: data yang sudah ada (score, bobot rubrik, startup) TIDAK ditimpa, hanya baris baru yang di-insert.
+
   // 1. Seed startups
   console.log('📦 Seeding startups...');
   const { error: startupError } = await supabase
     .from('startups')
-    .upsert(startups, { onConflict: 'id' });
+    .upsert(startups, { onConflict: 'id', ignoreDuplicates: true });
   if (startupError) {
     console.error('❌ Startup seed error:', startupError);
     return;
@@ -53,7 +63,7 @@ async function seed() {
   ];
   const { error: rubricError } = await supabase
     .from('rubric_aspects')
-    .upsert(rubrics, { onConflict: 'id' });
+    .upsert(rubrics, { onConflict: 'id', ignoreDuplicates: true });
   if (rubricError) {
     console.error('❌ Rubric seed error:', rubricError);
     return;
@@ -129,7 +139,7 @@ async function seed() {
 
   const { error: usersError } = await supabase
     .from('users')
-    .upsert(users, { onConflict: 'id' });
+    .upsert(users, { onConflict: 'id', ignoreDuplicates: true });
 
   if (usersError) {
     console.error('❌ Users seed error:', usersError);

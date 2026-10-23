@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
   status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
   photo_url TEXT,
   rubric_scores JSONB DEFAULT '{}'::jsonb,
+  presence_stats JSONB, -- riwayat sync presensi, terbaru di depan (lihat routes/integration.js)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -45,9 +46,12 @@ CREATE TABLE IF NOT EXISTS rubric_aspects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   weight INTEGER NOT NULL DEFAULT 0,
+  max_points INTEGER NOT NULL DEFAULT 20 CHECK (max_points BETWEEN 1 AND 100), -- batas |poin| per laporan
+  source TEXT CHECK (source IN ('presence')), -- 'presence' = nilai diisi otomatis dari aplikasi presensi
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_rubric_aspects_presence ON rubric_aspects(source) WHERE source IS NOT NULL;
 
 -- 4. Startups table
 CREATE TABLE IF NOT EXISTS startups (
@@ -79,19 +83,14 @@ CREATE INDEX IF NOT EXISTS idx_behavior_reports_reporter ON behavior_reports(rep
 CREATE INDEX IF NOT EXISTS idx_behavior_reports_date ON behavior_reports(date);
 
 -- ============================================
--- Disable RLS (backend handles auth via JWT)
+-- RLS aktif tanpa policy: anon/authenticated ditolak.
+-- Backend memakai service role key yang bypass RLS (auth via JWT di Express).
 -- ============================================
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE behavior_reports ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rubric_aspects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE startups ENABLE ROW LEVEL SECURITY;
-
--- Allow service role full access (backend uses service role key)
-CREATE POLICY "Service role full access" ON users FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access" ON behavior_reports FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access" ON rubric_aspects FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access" ON startups FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Service role full access" ON batches FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- Updated_at trigger
@@ -142,10 +141,8 @@ CREATE TABLE IF NOT EXISTS intern_activities (
 -- Indexes for new tables
 CREATE INDEX IF NOT EXISTS idx_intern_activities_intern ON intern_activities(intern_id);
 
--- Enable RLS and add policies
+-- Enable RLS (tanpa policy, lihat catatan di atas)
 ALTER TABLE intern_activities ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Service role full access" ON intern_activities FOR ALL USING (true) WITH CHECK (true);
 
 -- Updated_at triggers
 CREATE TRIGGER update_intern_activities_updated_at

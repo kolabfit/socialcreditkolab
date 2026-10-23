@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { User, BehaviorReport, RubricAspect, Startup, Batch, ActivityLog } from './types';
 import { authApi, usersApi, reportsApi, rubricsApi, startupsApi, batchesApi, activitiesApi, setToken, clearToken, hasToken } from './api';
+import { computeInternScore } from './utils';
 
 interface AppContextType {
   currentUser: User | null;
@@ -22,7 +23,7 @@ interface AppContextType {
   addReport: (report: Omit<BehaviorReport, 'id'>) => Promise<void>;
   deleteReport: (id: string) => Promise<void>;
   updateScore: (internId: string, newScore: number, rubricScores?: Record<string, number>) => Promise<void>;
-  updateRubricAspects: (aspects: RubricAspect[]) => Promise<void>;
+  updateRubricAspects: (aspects: RubricAspect[], reassign?: Record<string, string>) => Promise<void>;
   addStartup: (startup: Omit<Startup, 'id'>) => Promise<void>;
   updateStartup: (id: string, updates: Partial<Startup>) => Promise<void>;
   deleteStartup: (id: string) => Promise<void>;
@@ -70,13 +71,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
         activitiesApi.list(),
       ]);
       
-      if (results[0].status === 'fulfilled') setUsers((results[0].value as any[]).map(mapFrontendUser));
-      if (results[1].status === 'fulfilled') setReports(results[1].value);
-      if (results[2].status === 'fulfilled') setRubricAspects(results[2].value);
+      let loadedUsers = [];
+      let loadedReports = [];
+      let loadedRubrics = [];
+
+      if (results[1].status === 'fulfilled') {
+        loadedReports = results[1].value;
+        setReports(loadedReports);
+      }
+      if (results[2].status === 'fulfilled') {
+        loadedRubrics = results[2].value;
+        setRubricAspects(loadedRubrics);
+      }
       if (results[3].status === 'fulfilled') setStartups(results[3].value);
       if (results[4].status === 'fulfilled') setBatches(results[4].value);
       if (results[5].status === 'fulfilled') setActivities(results[5].value);
-      
+
+      if (results[0].status === 'fulfilled') {
+        loadedUsers = (results[0].value as any[]).map(mapFrontendUser);
+        
+        // Fix for bug: dynamically compute total score for interns
+        loadedUsers = loadedUsers.map(user =>
+          user.role === 'intern'
+            ? { ...user, score: computeInternScore(user, loadedRubrics, loadedReports) }
+            : user
+        );
+
+        setUsers(loadedUsers);
+      }
+
       const errors = results.filter(r => r.status === 'rejected').map((r: any) => r.reason?.message || 'Gagal memuat sebagian data');
       if (errors.length > 0) {
         setError(errors.join(', '));
@@ -122,6 +145,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     clearToken();
+    window.location.hash = '';
     setCurrentUser(null);
     setUsers([]);
     setReports([]);
@@ -168,31 +192,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const addReport = async (report: Omit<BehaviorReport, 'id'>) => {
-    const newReport = await reportsApi.create(report);
-    setReports(prev => [newReport, ...prev]);
-    
-    // Refresh users to get updated scores
-    const usersData = await usersApi.list();
-    setUsers((usersData as any[]).map(mapFrontendUser));
+    await reportsApi.create(report);
+    await refreshData();
   };
 
   const deleteReport = async (id: string) => {
     await reportsApi.delete(id);
-    setReports(prev => prev.filter(r => r.id !== id));
-    
-    // Refresh users to get reverted scores
-    const usersData = await usersApi.list();
-    setUsers((usersData as any[]).map(mapFrontendUser));
+    await refreshData();
   };
 
   const updateScore = async (internId: string, newScore: number, rubricScores?: Record<string, number>) => {
-    const updatedUser = await usersApi.updateScore(internId, newScore, rubricScores);
-    setUsers(prev => prev.map(u => u.id === internId ? mapFrontendUser(updatedUser) : u));
+    await usersApi.updateScore(internId, newScore, rubricScores);
+    await refreshData();
   };
 
-  const updateRubricAspects = async (aspects: RubricAspect[]) => {
-    const updated = await rubricsApi.update(aspects);
-    setRubricAspects(updated);
+  const updateRubricAspects = async (aspects: RubricAspect[], reassign?: Record<string, string>) => {
+    await rubricsApi.update(aspects, reassign);
+    await refreshData();
   };
 
   const addStartup = async (startup: Omit<Startup, 'id'>) => {
