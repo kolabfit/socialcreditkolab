@@ -8,6 +8,7 @@
     "server:dev": "node server/index.js",
     "dev:all": "concurrently \"npm run server:dev\" \"npm run dev\"",
     "seed": "node server/seed.js",
+    "reset-password": "node server/reset-password.js",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
