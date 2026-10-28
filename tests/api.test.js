@@ -191,6 +191,35 @@ test('login: sukses, salah password, lalu rate-limit', async () => {
   assert.equal(last.status, 429);
 });
 
+test('lupa password: user ajukan password baru, aktif hanya setelah HR setujui; tolak menjaga password lama', async () => {
+  const login = (password) => call('POST', '/auth/login', { body: { email: 'i1@x.id', password } });
+  const known = await call('POST', '/auth/forgot-password', { body: { email: 'I1@x.id', password: 'passwordbaru1' } });
+  const unknown = await call('POST', '/auth/forgot-password', { body: { email: 'tidakada@x.id', password: 'passwordbaru1' } });
+  assert.equal(known.status, 200);
+  assert.deepEqual(unknown, known);
+  assert.equal((await call('POST', '/auth/forgot-password', { body: { email: 'i1@x.id', password: '123' } })).status, 400);
+
+  // Belum disetujui: password lama masih berlaku, hash tidak bocor ke API
+  assert.equal((await login('rahasia123')).status, 200);
+  assert.equal((await login('passwordbaru1')).status, 401);
+  const listed = (await call('GET', '/users', { as: 'hr' })).body.find(u => u.id === 'i1');
+  assert.ok(listed.resetRequestedAt);
+  assert.equal(JSON.stringify(listed).includes('pending'), false);
+
+  assert.equal((await call('PATCH', '/users/i1/password-reset', { as: 'i2', body: { approve: true } })).status, 403);
+  assert.equal((await call('PATCH', '/users/i1/password-reset', { as: 'hr', body: { approve: true } })).status, 200);
+  assert.equal(user('i1').pending_password_hash, null);
+  assert.equal((await login('passwordbaru1')).status, 200);
+  assert.equal((await call('PATCH', '/users/i1/password-reset', { as: 'hr', body: { approve: true } })).status, 404);
+
+  // Tolak: password tetap yang lama
+  await call('POST', '/auth/forgot-password', { body: { email: 'i1@x.id', password: 'ditolak123' } });
+  assert.equal((await call('PATCH', '/users/i1/password-reset', { as: 'hr', body: { approve: false } })).status, 200);
+  assert.equal(user('i1').password_reset_requested_at, null);
+  assert.equal((await login('ditolak123')).status, 401);
+  assert.equal((await login('passwordbaru1')).status, 200);
+});
+
 test('batas poin per aspek & tanpa aspek ditegakkan', async () => {
   const before = user('i1').score;
   const body = { targetId: 'i1', date: '2026-10-01', type: 'good', description: 'x' };

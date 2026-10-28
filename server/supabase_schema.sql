@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   photo_url TEXT,
   rubric_scores JSONB DEFAULT '{}'::jsonb,
   presence_stats JSONB, -- riwayat sync presensi, terbaru di depan (lihat routes/integration.js)
+  password_reset_requested_at TIMESTAMPTZ, -- lupa password: waktu user mengajukan password baru
+  pending_password_hash TEXT, -- lupa password: hash password baru, aktif setelah disetujui HR
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

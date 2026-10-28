@@ -84,6 +84,12 @@ export const authApi = {
     }),
 
   me: () => request<any>('/auth/me'),
+
+  forgotPassword: (email: string, password: string) =>
+    request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }),
 };
 
 // ==========================================
@@ -115,6 +121,12 @@ export const usersApi = {
 
   delete: (id: string) =>
     request<{ message: string }>(`/users/${id}`, { method: 'DELETE' }),
+
+  decidePasswordReset: (id: string, approve: boolean) =>
+    request<any>(`/users/${id}/password-reset`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approve }),
+    }),
 
   suspend: (id: string, suspended: boolean) =>
     request<any>(`/users/${id}/suspend`, {

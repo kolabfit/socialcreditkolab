@@ -24,7 +24,7 @@ Pendaftaran mandiri hanya untuk `intern` dan `academic`. Akun HR dibuat oleh HR 
    Database lama: jalankan `server/migrations/001_security_hardening.sql` (tidak mengubah data).
 4. (Opsional) `npm run seed` — hanya menambah data awal yang belum ada; data & skor yang sudah ada tidak ditimpa.
    Segera ganti password default akun seed setelah login.
-5. `npm run dev:all` → frontend http://localhost:3000, API http://localhost:3001/api
+5. `npm run dev:all` → frontend http://localhost:3000, API http://localhost:3002/api
 
 ## Script
 

@@ -16,6 +16,8 @@ export function createFakeSupabase(tables) {
       select(cols, opts = {}) { countOnly = !!opts.head; return builder; },
       order() { return builder; },
       eq(col, val) { filters.push(r => r[col] === val); return builder; },
+      // ilike tanpa wildcard = sama persis, abaikan huruf besar/kecil
+      ilike(col, val) { filters.push(r => String(r[col]).toLowerCase() === String(val).toLowerCase()); return builder; },
       in(col, vals) { filters.push(r => vals.includes(r[col])); return builder; },
       not(col, opr, val) { filters.push(r => !(opr === 'is' && val === null && r[col] == null)); return builder; },
       single() { single = true; return builder; },

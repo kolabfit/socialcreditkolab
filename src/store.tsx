@@ -20,6 +20,7 @@ interface AppContextType {
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
   suspendUser: (id: string, suspended: boolean) => Promise<void>;
+  decidePasswordReset: (id: string, approve: boolean) => Promise<void>;
   addReport: (report: Omit<BehaviorReport, 'id'>) => Promise<void>;
   deleteReport: (id: string) => Promise<void>;
   updateScore: (internId: string, newScore: number, rubricScores?: Record<string, number>) => Promise<void>;
@@ -191,6 +192,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setUsers(prev => prev.map(u => u.id === id ? mapFrontendUser(updatedUser) : u));
   };
 
+  const decidePasswordReset = async (id: string, approve: boolean) => {
+    const updatedUser = await usersApi.decidePasswordReset(id, approve);
+    setUsers(prev => prev.map(u => u.id === id ? mapFrontendUser(updatedUser) : u));
+  };
+
   const addReport = async (report: Omit<BehaviorReport, 'id'>) => {
     await reportsApi.create(report);
     await refreshData();
@@ -255,7 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider value={{
       currentUser, users, reports, startups, batches, rubricAspects, activities,
       loading, error,
-      login, logout, register, addUser, updateUser, deleteUser, suspendUser,
+      login, logout, register, addUser, updateUser, deleteUser, suspendUser, decidePasswordReset,
       addReport, deleteReport, updateScore, updateRubricAspects,
       addStartup, updateStartup, deleteStartup,
       addBatch, updateBatch, deleteBatch,

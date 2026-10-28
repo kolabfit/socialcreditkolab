@@ -13,7 +13,7 @@ import activitiesRoutes from './routes/activities.js';
 import integrationRoutes from './routes/integration.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 // Middleware
 // CORS hanya untuk origin yang didaftarkan di CORS_ORIGIN (pisahkan dengan koma).

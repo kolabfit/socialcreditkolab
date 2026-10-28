@@ -6,7 +6,7 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   // Port backend Express dari .env (PORT), sama dengan server/index.js
-  const apiPort = loadEnv(mode, '.', '').PORT || 3001;
+  const apiPort = loadEnv(mode, '.', '').PORT || 3002;
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

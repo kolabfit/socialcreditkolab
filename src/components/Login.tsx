@@ -3,6 +3,7 @@ import { useAppContext } from '../store';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mail, Lock, User as UserIcon, Shield, Building2, Briefcase, Phone, Hash } from 'lucide-react';
 import { Role } from '../types';
+import { authApi } from '../api';
 
 export default function Login() {
   const { login, register, startups } = useAppContext();
@@ -97,6 +98,36 @@ export default function Login() {
         });
       }
     }
+  };
+
+  const handleForgotPassword = async () => {
+    const Swal = (await import('sweetalert2')).default;
+    const field = (id: string) => (document.getElementById(id) as HTMLInputElement).value;
+    const { value: resultMessage } = await Swal.fire({
+      title: 'Lupa Password',
+      html: `
+        <p class="text-sm text-neutral-500 mb-2">Isi email dan password baru. Password baru aktif setelah disetujui HR.</p>
+        <input id="reset-email" type="email" class="swal2-input" placeholder="nama@email.com" autocomplete="email">
+        <input id="reset-password" type="password" class="swal2-input" placeholder="Password baru (min. 6 karakter)" autocomplete="new-password">
+        <input id="reset-password2" type="password" class="swal2-input" placeholder="Ulangi password baru" autocomplete="new-password">`,
+      didOpen: () => { (document.getElementById('reset-email') as HTMLInputElement).value = email; },
+      showCancelButton: true,
+      confirmButtonText: 'Kirim Permintaan',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: '#EAB308',
+      showLoaderOnConfirm: true,
+      preConfirm: async () => {
+        if (field('reset-password') !== field('reset-password2')) {
+          return Swal.showValidationMessage('Konfirmasi password tidak cocok.');
+        }
+        try {
+          return (await authApi.forgotPassword(field('reset-email'), field('reset-password'))).message;
+        } catch (err: any) {
+          Swal.showValidationMessage(err.message);
+        }
+      },
+    });
+    if (resultMessage) Swal.fire('Permintaan Terkirim', resultMessage, 'success');
   };
 
   return (
@@ -294,7 +325,19 @@ export default function Login() {
                   )}
                 </div>
 
-                <button 
+                {isLogin && (
+                  <div className="text-right -mt-2">
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-sm font-bold text-neutral-500 hover:text-[#EAB308] transition-colors"
+                    >
+                      Lupa password?
+                    </button>
+                  </div>
+                )}
+
+                <button
                   type="submit"
                   className="w-full bg-[#EAB308] hover:bg-[#DCA506] text-black font-black py-4 rounded-xl transition-all mt-6 shadow-lg shadow-yellow-500/20 text-lg"
                 >

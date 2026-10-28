@@ -8,6 +8,8 @@ export const mapUser = (user) => {
     photo_url,
     rubric_scores,
     presence_stats,
+    password_reset_requested_at,
+    pending_password_hash,
     ...rest
   } = user;
 
@@ -18,6 +20,7 @@ export const mapUser = (user) => {
     ...(photo_url !== undefined && { photoUrl: photo_url }),
     ...(rubric_scores !== undefined && { rubricScores: rubric_scores }),
     ...(presence_stats !== undefined && { presenceStats: presence_stats }),
+    ...(password_reset_requested_at !== undefined && { resetRequestedAt: password_reset_requested_at }),
   };
 };
 

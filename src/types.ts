@@ -23,6 +23,7 @@ export interface User {
   photoUrl?: string;
   rubricScores?: Record<string, number>;
   presenceStats?: PresenceSync[]; // riwayat sync presensi, terbaru di depan
+  resetRequestedAt?: string | null; // user minta reset password (lupa password), menunggu HR
 }
 
 // Satu kali sync dari aplikasi presensi (lihat server/routes/integration.js)

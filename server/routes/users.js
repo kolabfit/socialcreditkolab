@@ -100,6 +100,8 @@ router.put('/:id', async (req, res) => {
 
     if (req.body.password) {
       updates.password_hash = await bcrypt.hash(req.body.password, 10);
+      updates.password_reset_requested_at = null;
+      updates.pending_password_hash = null;
     }
 
     if (Object.keys(updates).length === 0) {
@@ -172,6 +174,41 @@ router.patch('/:id/suspend', requireRole('field'), async (req, res) => {
     res.json(mapUser(user));
   } catch (err) {
     console.error('Suspend user error:', err);
+    res.status(500).json({ error: 'Terjadi kesalahan server.' });
+  }
+});
+
+// PATCH /api/users/:id/password-reset — HR setujui ({ approve: true }) atau tolak password baru
+// yang diajukan user lewat /api/auth/forgot-password.
+router.patch('/:id/password-reset', requireRole('field'), async (req, res) => {
+  try {
+    const { data: current } = await supabase
+      .from('users')
+      .select('pending_password_hash')
+      .eq('id', req.params.id)
+      .single();
+    if (!current?.pending_password_hash) {
+      return res.status(404).json({ error: 'Tidak ada permintaan reset password untuk user ini.' });
+    }
+
+    const updates = { pending_password_hash: null, password_reset_requested_at: null };
+    if (req.body.approve === true) updates.password_hash = current.pending_password_hash;
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('pending_password_hash', current.pending_password_hash) // permintaan baru di tengah jalan tidak ikut disetujui
+      .select()
+      .single();
+
+    if (error || !user) {
+      return res.status(409).json({ error: 'Permintaan berubah, muat ulang data lalu coba lagi.' });
+    }
+
+    res.json(mapUser(user));
+  } catch (err) {
+    console.error('Password reset decision error:', err);
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
   }
 });

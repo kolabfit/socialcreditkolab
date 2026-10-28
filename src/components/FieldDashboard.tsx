@@ -4,7 +4,7 @@ import { useAppContext } from '../store';
 import { integrationApi } from '../api';
 // @ts-ignore - motion/react type missing
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, Users, Eye, Activity, FileText, BarChart3, Edit2, Save, X, Ban, Trash2, Plus, ArrowUpRight, ArrowDownRight, Upload, ImageIcon, ShieldCheck, Star, ShieldAlert, Download, FileSpreadsheet, CheckSquare, ScanFace, MoreVertical } from 'lucide-react';
+import { Settings, Users, Eye, Activity, FileText, BarChart3, Edit2, Save, X, Ban, Trash2, Plus, ArrowUpRight, ArrowDownRight, Upload, ImageIcon, ShieldCheck, Star, ShieldAlert, Download, FileSpreadsheet, CheckSquare, ScanFace, MoreVertical, KeyRound } from 'lucide-react';
 import { useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
 import { Role } from '../types';
@@ -17,7 +17,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function FieldDashboard({ activeTab }: { activeTab: string }) {
-  const { users, reports, updateScore, updateUser, deleteUser, suspendUser, addReport, deleteReport, addUser, currentUser, rubricAspects, updateRubricAspects, startups, addStartup, updateStartup, deleteStartup, batches, addBatch, updateBatch, deleteBatch, activities, updateActivityStatus, refreshData } = useAppContext();
+  const { users, reports, updateScore, updateUser, deleteUser, suspendUser, decidePasswordReset, addReport, deleteReport, addUser, currentUser, rubricAspects, updateRubricAspects, startups, addStartup, updateStartup, deleteStartup, batches, addBatch, updateBatch, deleteBatch, activities, updateActivityStatus, refreshData } = useAppContext();
 
 
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
@@ -274,6 +274,28 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
   const [editStartupDesc, setEditStartupDesc] = useState('');
 
   const [activityLogTab, setActivityLogTab] = useState<'intern' | 'academic'>('intern');
+
+  const handlePasswordReset = async (user: Record<string, any>, approve: boolean) => {
+    const Swal = (await import('sweetalert2')).default;
+    const { isConfirmed } = await Swal.fire({
+      title: approve ? 'Setujui password baru?' : 'Tolak permintaan?',
+      text: approve
+        ? `Password baru yang diajukan ${user.name} akan langsung aktif. Pastikan permintaan ini benar dari yang bersangkutan.`
+        : `Permintaan reset password ${user.name} akan dihapus. Password lama tetap berlaku.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: approve ? 'Setujui' : 'Tolak',
+      cancelButtonText: 'Batal',
+      confirmButtonColor: approve ? '#16a34a' : '#dc2626',
+    });
+    if (!isConfirmed) return;
+    try {
+      await decidePasswordReset(user.id, approve);
+      Swal.fire('Berhasil', approve ? 'Password baru sudah aktif.' : 'Permintaan ditolak.', 'success');
+    } catch (err: any) {
+      Swal.fire('Gagal', err.message, 'error');
+    }
+  };
 
   const handleAddStartup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -859,14 +881,28 @@ export default function FieldDashboard({ activeTab }: { activeTab: string }) {
                     key: 'status',
                     label: 'Status',
                     filterable: true,
-                    render: (user) => user.status === 'suspended' ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">
-                        <Ban className="w-3 h-3" /> Suspended
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700">
-                        <ShieldCheck className="w-3 h-3" /> Active
-                      </span>
+                    render: (user) => (
+                      <div className="flex flex-wrap gap-1">
+                        {user.status === 'suspended' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-100 text-red-700">
+                            <Ban className="w-3 h-3" /> Suspended
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-700">
+                            <ShieldCheck className="w-3 h-3" /> Active
+                          </span>
+                        )}
+                        {user.resetRequestedAt && (
+                          <span
+                            title={`Diajukan ${new Date(user.resetRequestedAt).toLocaleString('id-ID')}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-700"
+                          >
+                            <KeyRound className="w-3 h-3" /> Minta reset password
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handlePasswordReset(user, true); }} className="px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white">Setujui</button>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); handlePasswordReset(user, false); }} className="px-2 py-0.5 rounded bg-red-600 hover:bg-red-700 text-white">Tolak</button>
+                          </span>
+                        )}
+                      </div>
                     )
                   },
                   {

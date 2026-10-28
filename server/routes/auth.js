@@ -57,6 +57,33 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+// POST /api/auth/forgot-password — user mengajukan password baru; aktif setelah HR menyetujui
+// (PATCH /api/users/:id/password-reset). Respons selalu sama supaya email terdaftar tidak bisa ditebak.
+router.post('/forgot-password', rateLimit({ windowMs: 60 * 60 * 1000, max: 5 }), async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const password = String(req.body?.password || '');
+  if (!EMAIL_RE.test(email)) {
+    return res.status(400).json({ error: 'Format email tidak valid.' });
+  }
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'Password minimal 6 karakter.' });
+  }
+  try {
+    const { error } = await supabase
+      .from('users')
+      .update({
+        pending_password_hash: await bcrypt.hash(password, 10),
+        password_reset_requested_at: new Date().toISOString(),
+      })
+      .ilike('email', email);
+    if (error) throw error;
+    res.json({ message: 'Jika email terdaftar, permintaan ganti password sudah dikirim. Password baru aktif setelah disetujui HR.' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Terjadi kesalahan server.' });
+  }
+});
+
 // POST /api/auth/register
 router.post('/register', rateLimit({ windowMs: 60 * 60 * 1000, max: 20 }), async (req, res) => {
   try {
